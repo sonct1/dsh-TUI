@@ -1,3 +1,5 @@
+buil 
+
 # Cài đặt, build và chạy local
 
 Tài liệu này hướng dẫn cách **build bản release từ mã nguồn của repo này và dùng
@@ -6,13 +8,13 @@ là bản dịch/hướng dẫn tiếng Việt của [安装与快速开始](get
 
 ## Yêu cầu tiền đề
 
-| Thành phần | Yêu cầu | Ghi chú |
-| --- | --- | --- |
-| Node.js | `^22.19 \|\| >=24` | CI sử dụng Node 24. Phiên bản thấp hơn 22.19 có thể install được (pnpm chỉ cảnh báo) nhưng không được hỗ trợ. |
-| pnpm | **10 trở lên** (CI dùng 11) | pnpm 9 làm profile không resolve được transitive dependency `dsh-working-activity`, dẫn đến TUI thoát ngay sau khi khởi động gần như không có lỗi (issue #60). |
-| dsh CLI | `@deepseek-ai/dsh` | CLI chính thức của DeepSeek Harness. |
-| Terminal | TTY hỗ trợ nhập liệu tương tác | `dsh-tui` không chạy được khi stdout bị redirect ra file hoặc pipeline. |
-| API key | `DEEPSEEK_API_KEY` | Bắt buộc để chạy model. Với endpoint tùy chỉnh có thể set thêm `DEEPSEEK_BASE_URL`. |
+| Thành phần | Yêu cầu                             | Ghi chú                                                                                                                                                                         |
+| ------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js      | `^22.19 \|\| >=24`                    | CI sử dụng Node 24. Phiên bản thấp hơn 22.19 có thể install được (pnpm chỉ cảnh báo) nhưng không được hỗ trợ.                                               |
+| pnpm         | **10 trở lên** (CI dùng 11)  | pnpm 9 làm profile không resolve được transitive dependency`dsh-working-activity`, dẫn đến TUI thoát ngay sau khi khởi động gần như không có lỗi (issue #60). |
+| dsh CLI      | `@deepseek-ai/dsh`                  | CLI chính thức của DeepSeek Harness.                                                                                                                                          |
+| Terminal     | TTY hỗ trợ nhập liệu tương tác | `dsh-tui` không chạy được khi stdout bị redirect ra file hoặc pipeline.                                                                                                 |
+| API key      | `DEEPSEEK_API_KEY`                  | Bắt buộc để chạy model. Với endpoint tùy chỉnh có thể set thêm`DEEPSEEK_BASE_URL`.                                                                                  |
 
 macOS/Linux:
 
@@ -58,9 +60,9 @@ Ghi chú:
   `git submodule update --init --recursive`.
 - `pnpm build` = `compile` (build `vendor/dsh-std` → xóa `lib/` → `tsc -p tsconfig.json`)
   + `verify:build` (17 script verify: boundary, contract, manifest-deps,
-  patch-surface, plugin-spec/grants/storage/messages/ledger/commands/negotiation/
-  lifecycle, packaged-presets, minimal-preset-tools, liangshen-bootstrap,
-  activity-i18n). `lib/types/` là thư mục generate bị ignore khỏi git.
+    patch-surface, plugin-spec/grants/storage/messages/ledger/commands/negotiation/
+    lifecycle, packaged-presets, minimal-preset-tools, liangshen-bootstrap,
+    activity-i18n). `lib/types/` là thư mục generate bị ignore khỏi git.
 - Muốn chạy smoke test sau build: `pnpm smoke`.
 
 ## Cài nhanh từ npm (không cần build)
