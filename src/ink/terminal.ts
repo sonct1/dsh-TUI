@@ -9,8 +9,6 @@ import {
   CURSOR_HOME,
   cursorMove,
   cursorTo,
-  ERASE_SCREEN,
-  ERASE_SCROLLBACK,
   eraseLines,
   SGR_RESET,
 } from './termio/csi.js'
@@ -373,22 +371,16 @@ export function writeDiffToTerminal(
         }
         break
       case 'clearTerminal':
-        // Hard clear of screen + scrollback. MUST run OUTSIDE the BSU/ESU
-        // sync block: Windows Terminal snaps the viewport back to the top
-        // when 2J/3J execute inside a synchronized-update block
-        // (claude-code#35580) — the reason the scrollUp-based "soft" clear
-        // existed at all. Close the block, clear, reopen. Everything stays
-        // in the SAME write, so the terminal processes it with no
-        // intermediate paint. The hard clear actually removes the UI's
-        // scrollback snapshots (the duplicated whale-logo class of bugs);
-        // the old soft clear (CSI n S) PUSHED the live viewport into the
-        // scrollback instead, depositing a fresh full-UI copy per reset.
+        // Preserve terminal scrollback in inline mode. Clearing with
+        // ESC[2J/ESC[3J removes the transcript history in xterm.js-family
+        // terminals (VS Code, Ghostty) at exactly the turn-end shrink frames
+        // where users expect to scroll back. The scroll-up clear blanks only
+        // the visible viewport by pushing it into scrollback, then repaints the
+        // current frame tail below; it is bounded to one viewport height by
+        // getClearTerminalSequence(), so it does not evict existing history.
         buffer +=
           (useSync ? ESU : '') +
-          SGR_RESET +
-          ERASE_SCREEN +
-          ERASE_SCROLLBACK +
-          CURSOR_HOME +
+          getClearTerminalSequence((terminal.stdout as NodeJS.WriteStream).rows) +
           (useSync ? BSU : '')
         break
       case 'cursorHide':
