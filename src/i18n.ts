@@ -261,6 +261,9 @@ const dict = {
 
   // ── plugin.ts — /update flow ───────────────────────────────────────
   'update-aborted-no-profile': { zh: 'dsh-tui 更新中止：未解析到 dsh profile。', en: 'dsh-tui update aborted: no dsh profile resolved.' },
+  'update-restart-version-unchanged': { zh: '更新后版本未变化（仍为 {{now}}，原为 {{updatedFrom}}）；可能是镜像 registry 未同步，请稍后重试或检查 registry 配置。', en: 'Version did not change after the update (still {{now}}, was {{updatedFrom}}); the mirror registry may not be synchronized. Try again later or check the registry configuration.' },
+  'preset-liangshen-name': { zh: '梁神模式', en: 'Liangshen Mode' },
+  'preset-liangshen-description': { zh: '主 Agent 与子 Agent 首轮均保持 Minimal 双工具，首次工具调用后开放完整目录，压缩后重新锚定。', en: 'The main agent and subagents keep Minimal’s two tools for their first turn, unlock the full tool catalog after the first tool call, and re-anchor after compaction.' },
 
   // ── components/ActivityLine.tsx ──────────────────────────────────────
   'activity-ctx-warn': { zh: '⚠ 上下文', en: '⚠ ctx ' },

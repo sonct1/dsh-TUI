@@ -46,7 +46,9 @@ import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { logForDebugging } from '../utils/debug.js'
 import { homeDir, LEGACY_DATA_DIR } from '../utils/paths.js'
 import { extractMentions } from '../utils/mentions.js'
-import { t } from '../i18n.js'
+import { getLang, subscribeLang, t } from '../i18n.js'
+import { localizeActivityState } from './activity-localization.js'
+import { localizeBundledPreset } from './preset-localization.js'
 import { modeDisplayName, resolveSessionModes, type SessionModeSpec } from '../sessionModes.js'
 import type { SpinnerMode } from '../components/Spinner/spinnerMode.js'
 import { ActivityTracker, type ActivityState } from 'dsh-working-activity/status'
@@ -2826,13 +2828,16 @@ export function createChannel(
       if (presets === undefined) return []
       try {
         const list = await presets.list()
-        return list.map(preset => ({
-          id: preset.id,
-          ...(preset.name === undefined ? {} : { name: preset.name }),
-          ...(preset.description === undefined ? {} : { description: preset.description }),
-          ...(preset.broken === undefined ? {} : { broken: preset.broken }),
-          isDefault: preset.id === presets.defaultId,
-        }))
+        return list.map(preset => {
+          const localized = localizeBundledPreset(preset)
+          return {
+            id: localized.id,
+            ...(localized.name === undefined ? {} : { name: localized.name }),
+            ...(localized.description === undefined ? {} : { description: localized.description }),
+            ...(preset.broken === undefined ? {} : { broken: preset.broken }),
+            isDefault: preset.id === presets.defaultId,
+          }
+        })
       } catch {
         return []
       }
@@ -4554,6 +4559,11 @@ ${output}
     detailLimit: 40,
     showIdle: false,
   })
+  let englishActivityTracker = new ActivityTracker({
+    phrases: false,
+    detailLimit: 40,
+    showIdle: false,
+  })
   let activityTickTimer: NodeJS.Timeout | undefined
 
   const stopActivityTick = (): void => {
@@ -4568,7 +4578,10 @@ ${output}
       state.workingActivity = undefined
       return undefined
     }
-    const rendered = activityTracker.render()
+    const lang = getLang()
+    const rendered = lang === 'en'
+      ? localizeActivityState(englishActivityTracker.render(), lang)
+      : activityTracker.render()
     state.workingActivity = rendered
     return rendered
   }
@@ -4581,7 +4594,13 @@ ${output}
       detailLimit: 40,
       showIdle: false,
     })
+    englishActivityTracker = new ActivityTracker({
+      phrases: false,
+      detailLimit: 40,
+      showIdle: false,
+    })
     activityTracker.onAgentStatus(agent.status)
+    englishActivityTracker.onAgentStatus(agent.status)
     renderWorkingActivity()
     activityTickTimer = setInterval(() => {
       const previous = state.workingActivity
@@ -4630,6 +4649,7 @@ ${output}
         if (subject !== agent) return
         state.status = status
         activityTracker.onAgentStatus(status)
+        englishActivityTracker.onAgentStatus(status)
         renderWorkingActivity()
         state.emit()
       }),
@@ -4670,6 +4690,7 @@ ${output}
         // publish never throws into this arm.
         messageObserver?.publish(session, event)
         activityTracker.onSessionEvent(event)
+        englishActivityTracker.onSessionEvent(event)
         renderWorkingActivity()
         // Mode-affecting atoms fold into the Shift+Tab mode indicator the
         // moment they land (whether appended by cycleMode or by hand).
@@ -4705,12 +4726,20 @@ ${output}
     }
   })
   bindAgent()
+  const unsubscribeActivityLang = subscribeLang(() => {
+    renderWorkingActivity()
+    state.emit()
+  })
   // Cordis owns the Channel lifetime. Rebinding handles the common case;
-  // this effect closes the final timer when the Channel's context unloads.
+  // this effect closes the final timer and language subscription when the
+  // Channel's context unloads.
   const effect = (ctx as Context & {
     effect?: (setup: () => () => void, label?: string) => void
   }).effect
-  effect?.call(ctx, () => () => { stopActivityTick() }, 'dsh-tui activity timer')
+  effect?.call(ctx, () => () => {
+    stopActivityTick()
+    unsubscribeActivityLang()
+  }, 'dsh-tui activity timer')
   // Statusline breadcrumb: current git branch of the session cwd (best-effort).
   // Re-run when an agent swap adopts a different persisted cwd (/resume,
   // issue #96) so the breadcrumb never shows the previous workspace's branch.

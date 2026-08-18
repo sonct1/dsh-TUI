@@ -122,8 +122,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         )
         if (process.stderr.isTTY) {
           process.stderr.write(
-            `\ndsh-tui: 更新后版本未变化（仍为 ${now ?? 'unknown'}，原为 ${updatedFrom}）；` +
-              `可能是镜像 registry 未同步，请稍后重试或检查 registry 配置。\n`,
+            `\ndsh-tui: ${t('update-restart-version-unchanged', { now: now ?? 'unknown', updatedFrom })}\n`,
           )
         }
       }

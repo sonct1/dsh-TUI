@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { discoverPresets } from '@deepseek-ai/dsh-agent-presets'
 import { ensurePackagedPresets, packagedPresetRoot } from '../lib/types/dsh-adapter/packaged-presets.js'
+import { localizeBundledPreset } from '../lib/types/dsh-adapter/preset-localization.js'
+import { setLang } from '../lib/types/i18n.js'
 
 const workspace = new URL('..', import.meta.url)
 const packagedRoot = join(fileURLToPath(workspace), 'presets')
@@ -26,6 +28,24 @@ try {
   const liangshen = discovered.find(preset => preset.id === 'liangshen')
   assert.equal(liangshen?.name, '梁神模式')
   assert.equal(liangshen?.broken, undefined)
+  const bundledLiangshen = liangshen ?? { id: 'liangshen' }
+  setLang('zh')
+  assert.deepEqual(localizeBundledPreset(bundledLiangshen), {
+    ...bundledLiangshen,
+    name: '梁神模式',
+    description: '主 Agent 与子 Agent 首轮均保持 Minimal 双工具，首次工具调用后开放完整目录，压缩后重新锚定。',
+  })
+  setLang('en')
+  assert.deepEqual(localizeBundledPreset(bundledLiangshen), {
+    ...bundledLiangshen,
+    name: 'Liangshen Mode',
+    description: 'The main agent and subagents keep Minimal’s two tools for their first turn, unlock the full tool catalog after the first tool call, and re-anchor after compaction.',
+  })
+  const externalPreset = { id: 'external', name: '自定义预设', description: '保持原样' }
+  assert.equal(localizeBundledPreset(externalPreset), externalPreset)
+  const conflictingLiangshen = { id: 'liangshen', name: 'Custom Liangshen', description: 'User-owned preset' }
+  assert.equal(localizeBundledPreset(conflictingLiangshen), conflictingLiangshen)
+  setLang('zh')
 
   const conflictingHome = join(temporary, 'conflicting-home')
   const conflictingPreset = join(conflictingHome, '.agent-presets', 'liangshen')
