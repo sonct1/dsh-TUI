@@ -2071,43 +2071,54 @@ export function Chat({
           newSinceRowId={isSticky ? null : lastSeenRowIdRef.current}
           onUnseenCount={setUnseenCount}
         />
+        {/* The goal/todo block rides the transcript (Claude Code semantics),
+            not the footer: it grows with the message flow and the sticky
+            scroll follows it, so mounting or growing it never reflows the
+            pinned bottom chrome below. */}
+        <GoalTodoPanel channel={channel} />
       </ScrollBox>
-      {/* Bottom chrome (pill, spinners, dialogs, prompt, statusline): never
-          let flex shrink squeeze these fixed-height rows — the ScrollBox
-          above absorbs all overflow (it is the scroll container). */}
+      {/* Bottom chrome (dialogs, prompt, statusline): never let flex shrink
+          squeeze these fixed-height rows — the ScrollBox above absorbs all
+          overflow (it is the scroll container). */}
       <Box flexDirection="column" flexShrink={0}>
-        {showPill && (
-          <NewMessagesPill
-            count={unseenCount}
-            onClick={() => handle?.scrollToBottom()}
-          />
-        )}
-        {channel.working &&
-          (channel.activityEnabled &&
-          channel.workingActivity !== undefined &&
-          channel.workingActivity.line !== '' &&
-          channel.workingActivity.phase !== 'idle' ? (
-            // The working-activity line REPLACES the CC random-verb spinner
-            // while a turn runs: the plugin's live line (thinking copy /
-            // running tool / narration) is the status, with the spinner
-            // slot's token counter preserved as a suffix. Only real activity
-            // data replaces the spinner — before the first event, or with
-            // `activity: false`, the classic spinner still renders. The line
-            // hugs the left edge (no padding) so the self-narration reads as
-            // part of the transcript, aligned with the `❯` prompt below.
-              <Box marginTop={1}>
-                <ActivityLine
-                  activity={channel.workingActivity}
-                  activityFrames={channel.activityFrames}
-                  warnPct={activityWarnPct}
-                  warnDanger={activityWarnPct !== undefined && activityWarnPct >= 95}
-                  // Upload = real tokens of the last request; download =
-                  // the animated chars/4 estimate, matching the classic
-                  // spinner's counter (the suffix used raw chars before,
-                  // inflating the reading next to a real upload number).
-                  suffix={`${lastUploadTokens > 0 ? ` · ↑ ${formatTokens(lastUploadTokens)}` : ''} · ↓ ${formatTokens(Math.round(channel.responseChars / 4))} tokens`}
-                />
-              </Box>
+        {/* Fixed-height footer band: the transient status rows (new-messages
+            pill, working spinner/activity line, plugin status contributions)
+            live in a constant two-row slot instead of flowing in, so their
+            mount/unmount can never move the input and StatusLine below them
+            nor resize the transcript — the input row set stays pinned to the
+            bottom in both inline and fullscreen modes. Overflow clips the
+            rare triple-stack (scrolled up while working with plugin status). */}
+        <Box flexDirection="column" flexShrink={0} height={2} overflow="hidden">
+          {showPill ? (
+            <NewMessagesPill
+              count={unseenCount}
+              onClick={() => handle?.scrollToBottom()}
+            />
+          ) : (
+            channel.working &&
+            (channel.activityEnabled &&
+            channel.workingActivity !== undefined &&
+            channel.workingActivity.line !== '' &&
+            channel.workingActivity.phase !== 'idle' ? (
+              // The working-activity line REPLACES the CC random-verb spinner
+              // while a turn runs: the plugin's live line (thinking copy /
+              // running tool / narration) is the status, with the spinner
+              // slot's token counter preserved as a suffix. Only real activity
+              // data replaces the spinner — before the first event, or with
+              // `activity: false`, the classic spinner still renders. The line
+              // hugs the left edge (no padding) so the self-narration reads as
+              // part of the transcript, aligned with the `❯` prompt below.
+              <ActivityLine
+                activity={channel.workingActivity}
+                activityFrames={channel.activityFrames}
+                warnPct={activityWarnPct}
+                warnDanger={activityWarnPct !== undefined && activityWarnPct >= 95}
+                // Upload = real tokens of the last request; download =
+                // the animated chars/4 estimate, matching the classic
+                // spinner's counter (the suffix used raw chars before,
+                // inflating the reading next to a real upload number).
+                suffix={`${lastUploadTokens > 0 ? ` · ↑ ${formatTokens(lastUploadTokens)}` : ''} · ↓ ${formatTokens(Math.round(channel.responseChars / 4))} tokens`}
+              />
             ) : (
               <WorkingSpinner
                 mode={channel.spinnerMode}
@@ -2119,16 +2130,17 @@ export function Chat({
                 pauseStartTimeRef={pauseStartTimeRef}
                 thinkingStatus={thinkingStatus}
               />
-            ))}
-        <GoalTodoPanel channel={channel} />
-        {statusEntries.length > 0 && (
-          // Plugin status contributions (tuiStatus seam): one joined line,
-          // truncated by the Text wrap contract — the host owns the layout,
-          // plugins own only their text.
-          <Text dimColor wrap="truncate">
-            {statusEntries.map(entry => entry.text).join(' · ')}
-          </Text>
-        )}
+            ))
+          )}
+          {statusEntries.length > 0 && (
+            // Plugin status contributions (tuiStatus seam): one joined line,
+            // truncated by the Text wrap contract — the host owns the layout,
+            // plugins own only their text.
+            <Text dimColor wrap="truncate">
+              {statusEntries.map(entry => entry.text).join(' · ')}
+            </Text>
+          )}
+        </Box>
         {approvalSnapshot !== null ? (
           <ApprovalPanel
             key={approvalSnapshot.key}
@@ -2199,7 +2211,7 @@ export function Chat({
             一份启动画的根因）。maxHeight 预留 prompt/statusline 行，防短会话
             高列表探出帧顶。整体条件挂载：见 dialogOverlayOpen 注释。 */}
         {dialogOverlayOpen && (
-        <OverlayAbove maxHeight={Math.max(terminalRows - 8, 8)}>
+        <OverlayAbove maxHeight={Math.max(terminalRows - 10, 8)}>
           {thinkingOpen && (
             <ThinkingToggle
               currentValue={thinkingVisible}

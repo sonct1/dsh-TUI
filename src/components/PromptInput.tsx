@@ -945,12 +945,15 @@ export function PromptInput({
   const floatersOpen = helpOpen || channel.pending.length > 0 || fileOverlayOpen || overlayOpen
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    // No marginTop: the Chat bottom chrome reserves a fixed two-row band
+    // above the input for the transient status rows, so the input row set
+    // stays pinned to the bottom regardless of what the band is showing.
+    <Box flexDirection="column">
       {/* 瞬态面板浮层（帮助/队列/补全）：零布局高度、向上覆盖转录尾部，
           帧高不随面板开关涨落——否则帧顶行会被滚进 scrollback 并在关闭
           重绘时二次写入（/model 切换多一份启动画的根因，见 OverlayAbove）。 */}
       {floatersOpen && (
-      <OverlayAbove maxHeight={Math.max(terminalRows - 6, 4)}>
+      <OverlayAbove maxHeight={Math.max(terminalRows - 8, 4)}>
         {helpOpen && (
           <Box marginBottom={1}>
             <HelpMenu commands={channel.commandList} />
