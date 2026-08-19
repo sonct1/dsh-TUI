@@ -83,7 +83,7 @@
   },
   "scripts": {
     "clean": "node scripts/clean-lib.mjs",
-    "build:dsh-std": "pnpm --dir vendor/dsh-std install --frozen-lockfile --ignore-scripts && pnpm --dir vendor/dsh-std --filter @dsh-std/core --filter @dsh-std/manifest --filter @dsh-std/connection --filter @dsh-std/presentation --filter @dsh-std/command --filter @dsh-std/storage --filter @dsh-std/messages -r build",
+    "build:dsh-std": "npx --yes --package pnpm@11.21.0 pnpm --dir vendor/dsh-std install --frozen-lockfile --ignore-scripts && npx --yes --package pnpm@11.21.0 pnpm --dir vendor/dsh-std --filter @dsh-std/core --filter @dsh-std/manifest --filter @dsh-std/connection --filter @dsh-std/presentation --filter @dsh-std/command --filter @dsh-std/storage --filter @dsh-std/messages -r build",
     "compile": "npm run build:dsh-std && npm run clean && tsc -p tsconfig.json",
     "prepare": "npm run compile",
     "build": "npm run compile && npm run verify:build",

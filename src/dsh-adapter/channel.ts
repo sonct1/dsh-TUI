@@ -13,6 +13,7 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { runSideQuestion, wrapSideQuestion } from './sideQuestion.js'
+import { createAutoContinueScheduler, type AutoContinueOptions, type AutoContinueNoticeKey } from './autoContinue.js'
 /** dsh-llm LlmRuntime as the side-question needs it: one streaming call. */
 type SideQuestionLlm = {
   stream(options: object): AsyncIterable<StreamChunk>
@@ -46,7 +47,7 @@ import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { logForDebugging } from '../utils/debug.js'
 import { homeDir, LEGACY_DATA_DIR } from '../utils/paths.js'
 import { extractMentions } from '../utils/mentions.js'
-import { getLang, subscribeLang, t } from '../i18n.js'
+import { getLang, subscribeLang, t, type I18nParams } from '../i18n.js'
 import { localizeActivityState } from './activity-localization.js'
 import { localizeBundledPreset } from './preset-localization.js'
 import { modeDisplayName, resolveSessionModes, type SessionModeSpec } from '../sessionModes.js'
@@ -1222,6 +1223,8 @@ export function createChannel(
     /** Edit/Write diff presentation; default `auto` (side-by-side ≥110
      *  columns, unified below). */
     diffLayout?: 'auto' | 'split' | 'unified'
+    /** Config-only automatic followup after resumable terminal turn outcomes. */
+    autoContinue?: AutoContinueOptions
     /** Show the segmented context bar row in the status footer; default on
      *  (cordis.yml `contextBar: false` hides it, issue #29). */
     contextBar?: boolean
@@ -1341,6 +1344,15 @@ export function createChannel(
     state.pending = state.pending.filter(item => item.id !== messageId)
     if (state.pending.length !== before) state.emit()
   }
+  const autoContinue = createAutoContinueScheduler(options.autoContinue, {
+    getAgent: () => agent,
+    pendingCount: () => state.pending.length,
+    isWorking: () => state.working,
+    trackPending,
+    untrackPending,
+    notify: (key: AutoContinueNoticeKey, params, notifyOptions) => state.notify(t(key, params as I18nParams | undefined), notifyOptions),
+    log: message => logForDebugging(message),
+  })
   /**
    * `@` file mentions (issue #15): expansion reads files asynchronously, so
    * every user-text delivery (submit / steer / interrupt-requeue) funnels
@@ -4588,6 +4600,7 @@ ${output}
 
   const bindAgent = (): void => {
     for (const dispose of agentSubscriptions) dispose()
+    autoContinue.resetForAgent(agent)
     stopActivityTick()
     activityTracker = new ActivityTracker({
       phrases: true,
@@ -4699,6 +4712,7 @@ ${output}
           refreshMode()
         }
         renderEvent(event)
+        autoContinue.onLiveSessionEvent(event)
         // Streaming deltas (one event per token) take the frame-aligned
         // path; every other event keeps synchronous notification.
         if (event.type === 'assistant/chunk') state.emitStream()
@@ -4737,6 +4751,7 @@ ${output}
     effect?: (setup: () => () => void, label?: string) => void
   }).effect
   effect?.call(ctx, () => () => {
+    autoContinue.dispose()
     stopActivityTick()
     unsubscribeActivityLang()
   }, 'dsh-tui activity timer')
