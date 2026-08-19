@@ -23,7 +23,7 @@ export function HelpMenu({
 }): React.ReactNode {
   const chrome = commands.filter(command => !command.skill)
   return (
-    <Box paddingX={2} flexDirection="row" gap={4}>
+    <Box paddingX={2} flexDirection="row" gap={4} alignItems="flex-end">
       <Box flexDirection="column" width={26} flexShrink={0}>
         <Box>
           <Text dimColor>{t('help-for-commands')}</Text>

@@ -138,7 +138,34 @@ console.log('HelpMenu 随 /lang 切换:')
   await sleep(100)
 }
 
-// --- 3. 窄终端中文截断不劈字 --------------------------------------------------
+// --- 3. 命令过多时快捷键列仍保留在可视区域 -----------------------------------
+
+console.log('长命令列表下快捷键可见:')
+
+{
+  const COLS = 110
+  const ROWS = 12
+  const { term, stdout } = makeTerm(COLS, ROWS)
+  const longCommands = Array.from({ length: 40 }, (_, index) => ({
+    name: `command-${index + 1}`,
+    description: `Command ${index + 1}`,
+  }))
+  setLang('en')
+  const app = await render(
+    React.createElement(HelpMenu, { commands: longCommands }),
+    { stdout, exitOnCtrlC: false, patchConsole: false },
+  )
+  await sleep(300)
+
+  const text = screenText(term, ROWS)
+  assert(text.includes('? for this help'), '命令列表超高时快捷键列仍贴底可见')
+  assert(text.includes('/command-40 — Command 40'), '命令列表末尾仍在可视区域')
+
+  app.unmount()
+  await sleep(100)
+}
+
+// --- 4. 窄终端中文截断不劈字 --------------------------------------------------
 
 console.log('窄终端中文描述截断:')
 
