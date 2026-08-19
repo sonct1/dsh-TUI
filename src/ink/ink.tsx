@@ -189,8 +189,19 @@ export default class Ink {
     x: number;
     y: number;
   } | null = null;
+  private handleStdinError(error: NodeJS.ErrnoException): void {
+    if (this.isUnmounted && error.code === 'EIO') {
+      return;
+    }
+    throw error;
+  }
   constructor(private readonly options: Options) {
     autoBind(this);
+    if (options.stdin.isTTY) {
+      // Keep this listener through teardown: a pending libuv TTY read can
+      // report EIO only after raw mode and React have already been released.
+      options.stdin.on('error', this.handleStdinError);
+    }
     if (this.options.patchConsole) {
       this.restoreConsole = this.patchConsole();
       this.restoreStderr = this.patchStderr();

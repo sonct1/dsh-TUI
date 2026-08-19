@@ -2059,14 +2059,12 @@ export function createChannel(
       if (queued.length === 0) return 0
       // No keepInbox: the parked copies are dropped (their discard events
       // retire the preview), then each text is re-queued as a fresh
-      // followup. The harness parks kept inbox work until an unrelated wake
-      // (official cancel.spec: "keepInbox parks queued work after an active
-      // turn aborts"), and a wake issued while the driver is still aborting
-      // is ignored — so the re-queue happens on `whenIdle`, whose own wake
-      // starts the new turn.
+      // followup. dsh-agent's cancel-convergence wake latch accepts this
+      // wake immediately after cancel and starts it once the aborted turn
+      // retires; waiting for whenIdle is unsafe because it also follows
+      // replacement work and may never settle.
       agent.cancel({ kind: 'user' })
       const token = ++interruptSeq
-      const whenIdle = (agent as { whenIdle?(): Promise<void> }).whenIdle
       const deliver = (): void => {
         // A second interrupt while the abort is still settling must not
         // double-deliver: only the latest request's re-queue runs.
@@ -2079,13 +2077,10 @@ export function createChannel(
           dispatchUserText(text, 'followup')
         }
       }
-      if (typeof whenIdle === 'function') {
-        void whenIdle.call(agent).then(deliver)
-      } else {
-        // Defensive: a wake while the driver still runs is ignored, so wait
-        // for the abort to settle before re-queueing.
-        setTimeout(deliver, 200)
-      }
+      // Let cancel finish its synchronous inbox bookkeeping before waking.
+      // A microtask also coalesces two same-tick interrupts: only the latest
+      // token survives, so the user's text is never sent twice.
+      queueMicrotask(deliver)
       return queued.length
     },
     /**
