@@ -9,6 +9,7 @@ import {
   CURSOR_HOME,
   cursorMove,
   cursorTo,
+  ERASE_SCREEN,
   eraseLines,
   SGR_RESET,
 } from './termio/csi.js'
@@ -371,16 +372,30 @@ export function writeDiffToTerminal(
         }
         break
       case 'clearTerminal':
-        // Preserve terminal scrollback in inline mode. Clearing with
-        // ESC[2J/ESC[3J removes the transcript history in xterm.js-family
-        // terminals (VS Code, Ghostty) at exactly the turn-end shrink frames
-        // where users expect to scroll back. The scroll-up clear blanks only
-        // the visible viewport by pushing it into scrollback, then repaints the
-        // current frame tail below; it is bounded to one viewport height by
-        // getClearTerminalSequence(), so it does not evict existing history.
+        // Hard clear of screen + scrollback. MUST run OUTSIDE the BSU/ESU
+        // sync block: Windows Terminal snaps the viewport back to the top
+        // when 2J/3J execute inside a synchronized-update block
+        // (claude-code#35580) — the reason the scrollUp-based "soft" clear
+        // existed at all. Close the block, clear, reopen. Everything stays
+        // in the SAME write, so the terminal processes it with no
+        // intermediate paint. The hard clear actually removes the UI's
+        // scrollback snapshots (the duplicated whale-logo class of bugs);
+        // the old soft clear (CSI n S) PUSHED the live viewport into the
+        // scrollback instead, depositing a fresh full-UI copy per reset.
+        // Screen-only hard clear: 2J + home, NO 3J. Erasing the scrollback
+        // here destroyed the user's entire visible history on every settle
+        // shrink (the "context lost / cannot scroll" reports) — the inline
+        // transcript IS the scrollback; wiping it to avoid duplicate
+        // snapshots is never an acceptable trade. 2J clears the screen for
+        // the repaint while everything above the viewport survives.
+        // Executed OUTSIDE the DEC 2026 sync block (split begin/end): WT
+        // yanks the viewport to top when 2J runs inside a synchronized
+        // update (claude-code#35580).
         buffer +=
           (useSync ? ESU : '') +
-          getClearTerminalSequence((terminal.stdout as NodeJS.WriteStream).rows) +
+          SGR_RESET +
+          ERASE_SCREEN +
+          CURSOR_HOME +
           (useSync ? BSU : '')
         break
       case 'cursorHide':

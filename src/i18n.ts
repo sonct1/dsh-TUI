@@ -148,6 +148,8 @@ const dict = {
   'skill-release-notes-prompt': { zh: '请使用 release-notes 技能为当前项目生成发布说明。', en: 'Use the release-notes skill to generate release notes for the current project.' },
   'skill-vuln-check-prompt': { zh: '请使用 vuln-check 技能对当前项目做一次安全漏洞检查。', en: 'Use the vuln-check skill to run a security vulnerability check on the current project.' },
   'context-loaded': { zh: '已加载上下文', en: 'Context loaded' },
+  'context-panel-expand': { zh: '展开', en: 'Expand' },
+  'context-panel-collapse': { zh: '折叠', en: 'Collapse' },
   'copied-chars': { zh: '已复制 {{n}} 个字符', en: 'Copied {{n}} characters' },
   'activity-usage-name': { zh: '/activity frames <名>', en: '/activity frames <name>' },
   'activity-current-preset': { zh: '当前预设  {{name}}', en: 'Current preset  {{name}}' },
@@ -270,6 +272,16 @@ const dict = {
   'update-restart-version-unchanged': { zh: '更新后版本未变化（仍为 {{now}}，原为 {{updatedFrom}}）；可能是镜像 registry 未同步，请稍后重试或检查 registry 配置。', en: 'Version did not change after the update (still {{now}}, was {{updatedFrom}}); the mirror registry may not be synchronized. Try again later or check the registry configuration.' },
   'preset-liangshen-name': { zh: '梁神模式', en: 'Liangshen Mode' },
   'preset-liangshen-description': { zh: '主 Agent 与子 Agent 首轮均保持 Minimal 双工具，首次工具调用后开放完整目录，压缩后重新锚定。', en: 'The main agent and subagents keep Minimal’s two tools for their first turn, unlock the full tool catalog after the first tool call, and re-anchor after compaction.' },
+  // 0.8.3 launcher alignment bridge: /update only replaces the profile
+  // copy; the global `dsh-tui` launcher must be aligned separately.
+  'update-launcher-align-unknown': {
+    zh: 'Profile 已更新到 v{{version}}。如果你平时使用全局 dsh-tui 命令启动，请同步更新全局启动器：\n  npm install -g @deepseek-harness-tui/dsh-tui@{{version}}',
+    en: 'The profile is now v{{version}}. If you normally launch with the global dsh-tui command, align the global launcher too:\n  npm install -g @deepseek-harness-tui/dsh-tui@{{version}}',
+  },
+  'update-launcher-outdated': {
+    zh: 'Profile 已更新到 v{{profile}}，但全局启动器仍是 v{{launcher}}。请同步更新：\n  npm install -g @deepseek-harness-tui/dsh-tui@{{profile}}',
+    en: 'The profile is now v{{profile}}, but the global launcher is still v{{launcher}}. Align it with:\n  npm install -g @deepseek-harness-tui/dsh-tui@{{profile}}',
+  },
 
   // ── components/ActivityLine.tsx ──────────────────────────────────────
   'activity-ctx-warn': { zh: '⚠ 上下文', en: '⚠ ctx ' },
