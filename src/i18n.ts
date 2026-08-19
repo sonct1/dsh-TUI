@@ -117,6 +117,12 @@ const dict = {
   'compact-nothing': { zh: '没有可压缩的内容', en: 'Nothing to compact' },
   'compact-failed': { zh: '压缩失败 · {{err}}', en: 'Compaction failed · {{err}}' },
   'turn-failed': { zh: '回合出错{{detail}}', en: 'Turn error{{detail}}' },
+  'auto-continue-scheduled': { zh: '自动继续将在 {{seconds}} 秒后发送（{{reason}}）', en: 'Auto-continue scheduled in {{seconds}}s ({{reason}})' },
+  'auto-continue-sent': { zh: '已自动继续（{{count}}/{{max}}）', en: 'Auto-continue sent ({{count}}/{{max}})' },
+  'auto-continue-failed': { zh: '自动继续失败 · {{err}}', en: 'Auto-continue failed · {{err}}' },
+  'auto-continue-max-retries': { zh: '自动继续已达到最大连续次数（{{max}}）', en: 'Auto-continue reached the max consecutive limit ({{max}})' },
+  'auto-continue-cooldown': { zh: '自动继续冷却中（还需 {{seconds}} 秒）', en: 'Auto-continue cooldown active ({{seconds}}s remaining)' },
+  'auto-continue-skip-permanent': { zh: '自动继续跳过：永久错误', en: 'Auto-continue skipped: permanent error' },
 
   // ── questions.ts ─────────────────────────────────────────────────────
   'questionnaire-answered': { zh: '📋 问卷已答 · {{total}} 题', en: '📋 Questionnaire answered · {{total}} questions' },

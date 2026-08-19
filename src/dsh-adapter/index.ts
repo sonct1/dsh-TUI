@@ -82,7 +82,21 @@ export interface Config {
    *  `plan`/`sandbox`/`approval` atoms; absent → the built-in
    *  default/plan/full cycle (see sessionModes.ts). */
   modes?: SessionModeSpec[]
+  /** Enable automatic followup after retryable turn endings; default off. */
+  autoContinue?: boolean
+  /** Text sent by auto-continue. */
+  autoContinueText?: string
+  /** Delay before sending auto-continue. */
+  autoContinueGraceMs?: number
+  /** Minimum delay between auto-continue sends. */
+  autoContinueCooldownMs?: number
+  /** Maximum consecutive auto-continue sends before a completed turn. */
+  autoContinueMaxConsecutive?: number
+  /** Continue after max-token turn endings; default on. */
+  autoContinueOnMaxTokens?: boolean
 }
+
+const DEFAULT_AUTO_CONTINUE_TEXT = 'Tiếp tục một cách thận trọng. Chỉ tiếp tục phần việc đang làm dở đã được phê duyệt hoặc đã yêu cầu. Nếu tin nhắn trước đó của assistant là kế hoạch, đề xuất, câu hỏi, hoặc đang chờ người dùng phê duyệt, không triển khai; hãy nói rằng bạn đang chờ quyết định của người dùng.'
 
 export const Config: Schema<Config> = Schema.object({
   sessionId: Schema.string().required(false),
@@ -111,6 +125,12 @@ export const Config: Schema<Config> = Schema.object({
       approval: Schema.union(['ask', 'never']).required(false),
     }),
   ).required(false),
+  autoContinue: Schema.boolean().default(false),
+  autoContinueText: Schema.string().default(DEFAULT_AUTO_CONTINUE_TEXT),
+  autoContinueGraceMs: Schema.number().default(3000),
+  autoContinueCooldownMs: Schema.number().default(20000),
+  autoContinueMaxConsecutive: Schema.number().default(3),
+  autoContinueOnMaxTokens: Schema.boolean().default(true),
 })
 
 /**

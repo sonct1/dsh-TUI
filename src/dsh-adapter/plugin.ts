@@ -342,6 +342,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // Edit/Write diff presentation (schema default 'auto'); the /settings
     // screen edits this key live through the dsh-tui namespace.
     diffLayout: config.diffLayout,
+    autoContinue: {
+      enabled: config.autoContinue,
+      text: config.autoContinueText,
+      graceMs: config.autoContinueGraceMs,
+      cooldownMs: config.autoContinueCooldownMs,
+      maxConsecutive: config.autoContinueMaxConsecutive,
+      onMaxTokens: config.autoContinueOnMaxTokens,
+    },
     handle,
   })
   // Register the dsh-tui settings namespace so the /settings screen can

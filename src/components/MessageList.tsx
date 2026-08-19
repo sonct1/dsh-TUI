@@ -634,6 +634,11 @@ function compactPreview(text: string, limit = 60): string {
 
 const MemoRow = React.memo(TranscriptRow)
 
+function shouldSkipIntroByDefault(): boolean {
+  const value = process.env.DSH_TUI_SKIP_INTRO?.toLowerCase()
+  return !['0', 'false', 'no', 'off'].includes(value ?? '')
+}
+
 /**
  * The header block pinned above the transcript: the DeepSeek pixel whale
  * with the wordmark, tagline, model/effort and cwd (`LogoV2`), plus the
@@ -651,7 +656,12 @@ export function LogoHeader({
 }): React.ReactNode {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <LogoV2 model={model} effort={effort} cwd={cwd} />
+      <LogoV2
+        model={model}
+        effort={effort}
+        cwd={cwd}
+        skipIntro={shouldSkipIntroByDefault()}
+      />
     </Box>
   )
 }
