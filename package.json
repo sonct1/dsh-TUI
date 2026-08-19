@@ -87,6 +87,7 @@
     "compile": "npm run build:dsh-std && npm run clean && tsc -p tsconfig.json",
     "prepare": "npm run compile",
     "build": "npm run compile && npm run verify:build",
+    "build:install": "node scripts/build-install-local.mjs",
     "dev": "node scripts/dev-test.mjs",
     "dev:copy-config": "node scripts/dev-copy-config.mjs",
     "dev:test": "node scripts/verify-dev-command.mjs && node scripts/dev-test.mjs --no-launch",

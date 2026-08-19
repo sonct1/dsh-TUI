@@ -34,7 +34,31 @@ trường khi khởi động.
 ## Build bản release từ source và dùng
 
 Mục tiêu phần này: build chính repo này thành gói release rồi cài vào profile dsh
-và dùng ngay. Tất cả chỉ 5 lệnh, chạy trong thư mục repo:
+và dùng ngay. Nếu đã ở trong thư mục repo, dùng một lệnh:
+
+```sh
+pnpm build:install
+```
+
+Lệnh này tự init submodule, cài dependencies, chạy build/verify, đóng gói tarball
+và cài tarball local vào profile `dsh-tui`. Sau đó chạy:
+
+```sh
+dsh --profile dsh-tui   # cần DEEPSEEK_API_KEY trong shell
+```
+
+Nếu muốn gõ trực tiếp `dsh-tui` thay cho `dsh --profile dsh-tui`, cài thêm
+launcher global từ tarball local vừa build:
+
+```sh
+npm install -g ./deepseek-harness-tui-dsh-tui-0.8.1.tgz
+dsh-tui   # tương đương dsh --profile dsh-tui
+```
+
+Nếu version trong `package.json` khác `0.8.1`, dùng đúng tên file `.tgz` mà
+`pnpm build:install` / `npm pack` in ra.
+
+Các bước thủ công tương đương:
 
 ```sh
 # 0. Nếu chưa clone (kéo luôn 2 submodule dsh-ecosystem-spec, vendor/dsh-std):
@@ -50,8 +74,10 @@ dsh --profile dsh-tui            # 5. chạy (cần DEEPSEEK_API_KEY trong shell
 
 Ghi chú:
 
-- Bước 4 chuyển tiếp sang `pnpm add` nên chấp nhận đường dẫn tarball local. Sau
-  bước 4, lệnh `dsh-tui` cũng chạy được — tương đương `dsh --profile dsh-tui`.
+- Bước 4 chuyển tiếp sang `pnpm add` nên chấp nhận đường dẫn tarball local.
+- `dsh plugin --profile dsh-tui add ...` chỉ cài package vào profile; nó không
+  tự tạo lệnh global `dsh-tui`. Muốn gõ `dsh-tui`, cài launcher bằng
+  `npm install -g ./deepseek-harness-tui-dsh-tui-0.8.1.tgz` hoặc cài package từ npm.
 - Tên tarball sinh từ `package.json` version (hiện tại `0.8.1`); nếu version
   khác thì dùng đúng tên file `npm pack` in ra.
 - Node cần `^22.19 || >=24` (CI dùng 24). Nếu build lỗi liên quan engine, nâng
@@ -186,10 +212,21 @@ thức thì dùng `cordis.patch.yml`, không cần copy config root vào profile
 
 ```sh
 dsh --profile dsh-tui
+# hoặc, nếu đã cài launcher global:
+dsh-tui
 ```
 
 Lệnh khởi động từ thư mục hiện tại nên workspace mặc định của Agent cũng là
 thư mục đó. Vào thư mục project muốn làm việc rồi mới chạy.
+
+`dsh-tui` là launcher global của package `@deepseek-harness-tui/dsh-tui`. Nếu
+shell báo không tìm thấy lệnh này, cài package global trước:
+
+```sh
+npm install -g @deepseek-harness-tui/dsh-tui
+# hoặc với bản local đã pack:
+npm install -g ./deepseek-harness-tui-dsh-tui-0.8.1.tgz
+```
 
 Windows bản checkout còn có:
 
