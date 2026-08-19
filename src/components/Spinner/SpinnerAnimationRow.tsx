@@ -252,7 +252,6 @@ export function SpinnerAnimationRow({
       ref={viewportRef}
       flexDirection="row"
       flexWrap="wrap"
-      marginTop={1}
       width="100%"
     >
       <SpinnerGlyph
