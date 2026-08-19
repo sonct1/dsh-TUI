@@ -1,7 +1,9 @@
 /**
  * Footer-pinning regression: the transient status rows (working
  * spinner/activity line, plugin status contributions, new-messages pill)
- * must mount/unmount inside a fixed two-row band above the prompt, so the
+ * must mount/unmount inside a fixed two-row band above the prompt, and the
+ * StatusLine's context-bar row must stay reserved from session start
+ * (contextWindow arrives only with the first request/context), so the
  * prompt input and StatusLine stay on the SAME screen rows in every state —
  * in both inline and fullscreen renders. The goal/todo panel rides the
  * transcript (Claude Code semantics), visible at the bottom of the scroll
@@ -85,7 +87,10 @@ function makeChannel(listeners) {
     activityEnabled: true,
     activityFrames: [],
     contextBarEnabled: true,
-    contextWindow: 1_000_000,
+    // Fresh session: the context window is unknown until the first
+    // request/context event — the bar slot must stay reserved so the rows
+    // below don't move when the bar content arrives.
+    contextWindow: undefined,
     contextSegments: { system: 100, prompt: 200, assistant: 300, thinking: 0, tools: 0 },
     workingActivity: undefined,
     goal: undefined,
@@ -133,7 +138,14 @@ async function scenario(cols, rows, fullscreen, label) {
   const emit = () => { channel.version++; for (const l of [...listeners]) l() }
 
   const states = []
-  states.push(['idle', snap()])
+  // Fresh session: contextWindow undefined (no bar content yet), then the
+  // first request/context arrives and the bar mounts — the input/status rows
+  // must not move across that transition either.
+  states.push(['no-bar', snap()])
+  channel.contextWindow = 1_000_000
+  emit()
+  await sleep(200)
+  states.push(['bar', snap()])
   channel.working = true
   emit()
   await sleep(200)
