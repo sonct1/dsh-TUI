@@ -218,8 +218,16 @@ export function StatusLine({
     <Box paddingX={1} width={columns} flexShrink={0}>
       <Box flexDirection="column" width="100%">
         {/* Row 1: segmented context bar, its own line, first (pi-nano-context
-            placement — the bar sits directly under the transcript). */}
-        {bar ? <Text>{bar}</Text> : null}
+            placement — the bar sits directly under the transcript). The slot
+            is always reserved while the bar is enabled: contextWindow arrives
+            via request/context only once a turn starts, and a mounting bar
+            would otherwise shove the status fields and hint rows below it
+            down a row (and unmounting pull them back up — the footer jump).
+            A spacer of the bar's own width keeps the row occupied without
+            moving the rows beneath. */}
+        {(statusBar.contextBar && channel.contextBarEnabled && barWidth >= 14) ? (
+          <Text>{bar ?? ' '.repeat(Math.max(0, barWidth))}</Text>
+        ) : null}
         {/* Row 2: optional status fields — every field is independently gated. */}
         {hasStatusFields ? statusBar.compact ? (
           <Box flexDirection="row" justifyContent="space-between" gap={2}>
