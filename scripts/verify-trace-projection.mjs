@@ -203,7 +203,8 @@ check('fixture folds to a non-trivial ledger', whole.nodes.length > 40, `${whole
   check('human prompts stay USER rows', whole.nodes.some(n => n.kind === 'user' && n.label === ''))
 
   const system = whole.nodes.filter(n => n.kind === 'system').map(n => n.label)
-  check('mode/route/command changes become system rows', system.includes('mode') && system.includes('deepseek-v4') && system.includes('/permission'), system.join(','))
+  check('mode and command changes become system rows', system.includes('mode') && system.includes('/permission'), system.join(','))
+  check('route-only request headers do not add prompt-noise rows', !system.includes('deepseek-v4'), system.join(','))
 }
 
 {

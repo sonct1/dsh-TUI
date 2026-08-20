@@ -183,6 +183,9 @@ export interface RequestHeaderPayload {
   readonly model?: string
   readonly effort?: string
   readonly reason?: string
+  readonly system: string
+  readonly tools: readonly unknown[]
+  readonly config?: Readonly<Record<string, unknown>>
 }
 
 /** Narrow a `request/header` payload. */
@@ -196,6 +199,9 @@ export function readRequestHeader(data: unknown): RequestHeaderPayload | undefin
     model: config === undefined ? undefined : str(config, 'model'),
     effort: config === undefined ? undefined : str(config, 'reasoningEffort'),
     reason: str(data, 'reason'),
+    system: str(header, 'system') ?? '',
+    tools: Array.isArray(header.tools) ? header.tools : [],
+    config,
   }
 }
 
@@ -308,15 +314,31 @@ export interface CompactionPayload {
   readonly id?: string
   readonly reason?: string
   readonly removed?: number
+  readonly summary?: string
+  readonly output?: string
+  readonly provider?: string
+  readonly model?: string
+  readonly config?: Readonly<Record<string, unknown>>
+  readonly usage?: unknown
+  readonly error?: string
 }
 
-/** Narrow a `compaction/start` or `compaction/end` payload. */
+/** Narrow every `compaction/*` lifecycle payload without discarding its result facts. */
 export function readCompaction(data: unknown): CompactionPayload {
   if (!isRecord(data)) return {}
+  const config = isRecord(data.config) ? data.config : undefined
+  const error = isRecord(data.error) ? str(data.error, 'message') ?? str(data.error, 'code') : str(data, 'error')
   return {
     id: str(data, 'id') ?? str(data, 'compactionId'),
     reason: str(data, 'reason') ?? str(data, 'trigger'),
     removed: num(data, 'removed') ?? num(data, 'pruned'),
+    summary: str(data, 'summary'),
+    output: str(data, 'output') ?? str(data, 'rawOutput') ?? str(data, 'result'),
+    provider: str(data, 'provider') ?? (config === undefined ? undefined : str(config, 'provider')),
+    model: str(data, 'model') ?? (config === undefined ? undefined : str(config, 'model')),
+    config,
+    usage: data.usage,
+    error,
   }
 }
 

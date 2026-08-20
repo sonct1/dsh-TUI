@@ -298,7 +298,7 @@
         # 默认值。优先于持久化的 Shift+Tab 选择（~/.dsh-tui/effort.json）；
         # 同时作为顶栏/状态栏的启动显示，首个请求头回来后以实际值为准。
         effort: max
-        # Shift+Tab session-mode cycle (array order IS the cycle order;
+        # Session-mode cycle configuration (array order IS the cycle order;
         # absent → the built-in default/plan/full trio below). Each entry
         # may declare any subset of the plan (on/off), sandbox (read-only/
         # workspace-write/danger-full-access), and approval (ask/never)

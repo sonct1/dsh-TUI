@@ -202,7 +202,6 @@ export function StatusLine({
     ? leftParts
     : [...leftParts, contextUsagePart]
   const hasStatusFields = compactLeftParts.length > 0 || contextUsagePart !== undefined
-  const showSupplementalRow = hint !== '' || showActivity || showTrajectory
 
   return (
     // Width is pinned to the terminal rather than inherited: `width="100%"`
@@ -258,8 +257,11 @@ export function StatusLine({
             </Box>
           </Box>
         ) : null}
-        {/* Row 3: one stable hint/activity area plus an optional wake. */}
-        {showSupplementalRow ? <Box
+        {/* Row 3: always reserve the hint/activity/trajectory slot. These
+            values appear and disappear as a turn starts, finishes, or gains
+            trajectory data; conditionally mounting the row changes the bottom
+            chrome height and makes both the prompt and footer jump. */}
+        <Box
           height={1}
           overflow="hidden"
           flexDirection="row"
@@ -293,7 +295,7 @@ export function StatusLine({
           {showTrajectory && wake !== undefined ? (
             <MiniWake band={wake.band} hint={wake.hint} tick={wake.tick} />
           ) : null}
-        </Box> : null}
+        </Box>
       </Box>
     </Box>
   )

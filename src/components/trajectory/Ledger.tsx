@@ -173,14 +173,22 @@ export function Ledger({
         }
 
         const spineColor = failed ? 'error' : running ? 'success' : node.seed === true ? 'subtle' : 'inactive'
-        const badgeBg = KIND_BADGE_BG[node.kind]
-        const badge = layout.badge === 6 ? KIND_BADGE[node.kind] : KIND_GLYPH[node.kind]
+        // Request rows are a newer adapter contract; keep the ledger usable
+        // while shared formatting maps catch up by borrowing model styling.
+        const displayKind = node.kind === 'request' ? 'assistant' : node.kind
+        const badgeBg = KIND_BADGE_BG[displayKind]
+        const badge = node.kind === 'request' ? (layout.badge === 6 ? 'REQ' : 'R') : layout.badge === 6 ? KIND_BADGE[displayKind] : KIND_GLYPH[displayKind]
 
         // Label and detail share one budget so a long tool name never pushes
         // the duration column off the row.
+        const requestFacts = node.request === undefined
+          ? ''
+          : [node.request.provider, node.request.model, node.request.id].filter((fact): fact is string => fact !== undefined).join(' · ')
         const label = node.burst !== undefined ? `${node.label} ×${node.burst.members.length}` : node.label
         const detailBudget = Math.max(0, layout.detail - label.length - 1)
-        const detail = node.detail === undefined ? '' : previewText(node.detail, detailBudget)
+        const detail = node.detail === undefined
+          ? previewText(requestFacts, detailBudget)
+          : previewText(node.detail, detailBudget)
         const outcome =
           layout.outcome && node.outcome !== undefined && node.outcome !== ''
             ? previewText(node.outcome, Math.max(8, Math.floor(layout.detail * 0.3)))
@@ -205,7 +213,7 @@ export function Ledger({
             )}
             <Box flexShrink={0}>
               <Text
-                color={isNew ? mix(theme[KIND_FG[node.kind]] as string, theme.text, arriving) : KIND_FG[node.kind]}
+                color={isNew ? mix(theme[KIND_FG[displayKind]] as string, theme.text, arriving) : KIND_FG[displayKind]}
                 backgroundColor={badgeBg}
                 bold
               >

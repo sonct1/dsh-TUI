@@ -129,7 +129,7 @@ const RESERVED_COMBOS = new Set([
   'alt+up', // pull the last pending message back for editing
   'escape', // pickers / interrupt / rewind double-tap
   'tab', // command completion
-  'shift+tab', // session-mode cycle
+  'shift+tab', // reasoning-effort cycle
 ])
 
 /**

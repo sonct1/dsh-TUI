@@ -305,7 +305,7 @@ const dict = {
   'effort-current': { zh: '当前推理强度 {{name}}', en: 'Current reasoning effort {{name}}' },
   'effort-usage': { zh: '用法：/effort（滑杆）| /effort <id> | /effort status', en: 'Usage: /effort (slider) | /effort <id> | /effort status' },
 
-  // ── channel.ts — Shift+Tab session modes ────────────────────────────
+  // ── channel.ts — session modes ─────────────────────────────────────
   'mode-switched': { zh: '模式 → {{name}}', en: 'Mode → {{name}}' },
   'mode-default': { zh: '默认', en: 'default' },
   'mode-plan': { zh: '计划模式', en: 'plan mode' },
@@ -365,7 +365,7 @@ const dict = {
   'help-move-cursor': { zh: '←/→ 移动光标', en: '←/→ to move cursor' },
   'help-word-jumps': { zh: '{{mod}}←/→ 按词跳转', en: '{{mod}}←/→ for word jumps' },
   'help-complete-command': { zh: 'tab 补全命令', en: 'tab to complete command' },
-  'help-cycle-mode': { zh: 'shift+tab 切换模式', en: 'shift+tab to cycle mode' },
+  'help-cycle-mode': { zh: 'shift+tab 切换推理强度', en: 'shift+tab to cycle reasoning effort' },
   'help-open-editor': { zh: 'ctrl+g 打开编辑器', en: 'ctrl+g to open editor' },
   'help-commands-title': { zh: '命令：', en: 'commands:' },
   'tips-title': { zh: '使用技巧（快捷键 · 命令 · 工作流 · 个性化 · 避坑）', en: 'Usage tips (shortcuts · commands · workflow · display · gotchas)' },
@@ -759,8 +759,8 @@ const dict = {
   'traj-proj-time': { zh: '真实墙钟', en: 'wall-clock' },
   'traj-proj-compressed': { zh: '压缩空闲', en: 'compressed' },
   'traj-hint-timeline': {
-    zh: '**↑/↓** 移动 · **←/→** 视图 · **[ ]** 跳错 · **{ }** 跳轮 · **/** 查询 · **m** 投影 · **enter** 详情 · **q** 退出',
-    en: '**↑/↓** move · **←/→** view · **[ ]** failures · **{ }** turns · **/** query · **m** projection · **enter** detail · **q** exit',
+    zh: '**↑/↓** 移动 · **[ ]/{ }** 跳转 · **/** 查询 · **v/z/x** 范围/缩放/清除 · **c** 折叠 · **tab** 详情 · **enter** 展开 · **q** 退出',
+    en: '**↑/↓** move · **[ ]/{ }** jump · **/** query · **v/z/x** range/zoom/clear · **c** fold · **tab** detail · **enter** expand · **q** exit',
   },
   'traj-hint-hotspot': {
     zh: '**↑/↓** 移动 · **←/→** 视图 · **t** 排序 · **enter** 回时序定位 · **q** 退出',
@@ -771,8 +771,8 @@ const dict = {
     en: '**tool:** **kind:** **turn:** **err:** **run:** **>10s** **tok>1k** · bare word = full text · **enter** apply · **esc** clear',
   },
   'traj-hint-expanded': {
-    zh: '**j/k** 翻页 · **enter/esc** 收起 · **q** 退出',
-    en: '**j/k** page · **enter/esc** collapse · **q** exit',
+    zh: '**tab/shift+tab** 详情页 · **n/p** 聚合成员 · **j/k** 翻页 · **enter/esc** 收起 · **q** 退出',
+    en: '**tab/shift+tab** detail tabs · **n/p** burst members · **j/k** page · **enter/esc** collapse · **q** exit',
   },
   'traj-empty': { zh: '暂无轨迹事件', en: 'No trajectory events yet' },
   'traj-hint-failure': { zh: '{{key}} 看完整轨迹', en: '{{key}} for the full trajectory' },

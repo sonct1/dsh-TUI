@@ -619,12 +619,11 @@ export function PromptInput({
       handleEnter()
       return
     }
-    // Shift+Tab cycles the configured session modes (default: 默认 →
-    // 计划模式 → 完全访问; each mode bundles plan/sandbox/approval atoms —
-    // see the `modes` config). Must precede the plain-Tab arms — the parser
-    // reports backtab as key.tab + key.shift.
+    // Shift+Tab cycles the live route's reasoning-effort levels in adapter
+    // display order. Must precede the plain-Tab arms — the parser reports
+    // backtab as key.tab + key.shift.
     if (key.tab && key.shift) {
-      void channel.cycleMode()
+      void channel.cycleEffort()
       return
     }
     if (key.tab && fileOverlayOpen) {

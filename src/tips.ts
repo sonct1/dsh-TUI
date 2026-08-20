@@ -121,8 +121,8 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'keys-shift-tab',
     group: 'keys',
-    zh: 'Shift+Tab 循环会话模式：默认→计划→完全访问',
-    en: 'Shift+Tab cycles modes: default → plan → full access',
+    zh: 'Shift+Tab 循环当前模型的推理强度',
+    en: 'Shift+Tab cycles the current model reasoning effort',
   },
   {
     id: 'keys-shift-up',

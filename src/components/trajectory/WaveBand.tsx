@@ -62,6 +62,7 @@ export function WaveBand({
   viewportStart,
   viewportEnd,
   matches,
+  selection,
   tick,
   alertTick,
 }: {
@@ -79,6 +80,8 @@ export function WaveBand({
    * whole session is visible at a glance; the silhouette never changes.
    */
   matches?: ReadonlySet<number>
+  /** Inclusive selected interval, rendered over the ruler. */
+  selection?: readonly [number, number]
   /** Scene clock tick. */
   tick: number
   /** Tick the most recent alert was triggered on. */
@@ -164,13 +167,20 @@ export function WaveBand({
   }
   const from = Math.max(0, Math.min(band.buckets.length - 1, viewportStart))
   const to = Math.max(from, Math.min(band.buckets.length - 1, viewportEnd))
+  const selectionFrom = selection === undefined ? -1 : Math.max(0, Math.min(...selection))
+  const selectionTo = selection === undefined ? -1 : Math.min(band.buckets.length - 1, Math.max(...selection))
   let rulerText = ''
   for (let column = 0; column < ruler.length; column++) {
+    const selected = column >= selectionFrom && column <= selectionTo
     const inViewport = column >= from && column <= to
-    const glyph = inViewport ? (column === from ? '▐' : column === to ? '▌' : '▀') : ruler[column]!
-    rulerText += inViewport
-      ? chalk.hex(toHex(theme.permission))(glyph)
-      : chalk.hex(toHex(theme.subtle))(glyph)
+    const glyph = selected
+      ? (column === selectionFrom ? '▐' : column === selectionTo ? '▌' : '▄')
+      : inViewport ? (column === from ? '▐' : column === to ? '▌' : '▀') : ruler[column]!
+    rulerText += selected
+      ? chalk.hex(toHex(theme.suggestion))(glyph)
+      : inViewport
+        ? chalk.hex(toHex(theme.permission))(glyph)
+        : chalk.hex(toHex(theme.subtle))(glyph)
   }
 
   return (

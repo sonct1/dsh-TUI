@@ -1,5 +1,5 @@
 /**
- * Configurable Shift+Tab session modes (the `modes` dsh-tui plugin config):
+ * Configurable session modes (the `modes` dsh-tui plugin config):
  * each mode is a named bundle of optional DSH plane switches — plan mode
  * (dsh-plan-mode `/plan`), sandbox mode (dsh-sandbox-policy `sandbox/mode`
  * session events), approval policy (dsh-user-approval `approval/policy`
@@ -22,7 +22,7 @@ export interface SessionModeSpec {
 }
 
 /** The shipped cycle when cordis.yml pins no `modes` — array order IS the
- *  Shift+Tab cycle order; index 0 is the unmarked base mode. */
+ *  cycle order; index 0 is the unmarked base mode. */
 export const DEFAULT_SESSION_MODES: readonly SessionModeSpec[] = [
   { id: 'default', plan: false, sandbox: 'workspace-write', approval: 'ask' },
   { id: 'plan', plan: true, sandbox: 'read-only', approval: 'ask' },

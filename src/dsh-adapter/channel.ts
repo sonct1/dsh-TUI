@@ -610,15 +610,18 @@ export interface Channel {
    *  slider; empty `efforts` after notifying when unsupported/unavailable. */
   listEfforts(): Promise<{ efforts: readonly EffortOption[]; defaultEffort: string | undefined }>
   /** Set one effort level by id (validated against the adapter list);
-   *  false + a notify when the id is not offered. Persists like the old
-   *  Shift+Tab cycle (~/.dsh-tui/effort.json). */
+   *  false + a notify when the id is not offered. */
   setEffort(id: string): Promise<boolean>
+  /** Shift+Tab: advance through the live route's reasoning-effort levels in
+   *  adapter display order, taking effect on the next request and persisting
+   *  across restarts. */
+  cycleEffort(): Promise<void>
   /** The session mode currently in force (matched from the session log, or
-   *  the last one Shift+Tab applied). */
+   *  the last one applied through the mode API). */
   readonly mode: SessionModeSpec
   /** Index of `mode` in the configured cycle; 0 is the unmarked base mode. */
   readonly modeIndex: number
-  /** Shift+Tab: advance to the next configured session mode. */
+  /** Advance to the next configured session mode. */
   cycleMode(): Promise<void>
   /** The preset the CURRENT session runs under (issue #8), resolved from its
    *  log at create/resume time; undefined when no roster is mounted. */
@@ -894,11 +897,13 @@ export interface ChannelState {
   listEfforts(): Promise<{ efforts: readonly EffortOption[]; defaultEffort: string | undefined }>
   /** Set one effort level by id (see the public Channel type). */
   setEffort(id: string): Promise<boolean>
+  /** Shift+Tab reasoning-effort advance (see the public Channel type). */
+  cycleEffort(): Promise<void>
   /** The session mode currently in force (see the public Channel type). */
   mode: SessionModeSpec
   /** Index of `mode` in the configured cycle (see the public Channel type). */
   modeIndex: number
-  /** Shift+Tab session-mode advance (see the public Channel type). */
+  /** Session-mode advance (see the public Channel type). */
   cycleMode(): Promise<void>
   /** The preset the current session runs under (see the public Channel type). */
   agentPreset: string | undefined
@@ -1268,8 +1273,8 @@ export function createChannel(
     configuredModel?: string
     /** The preset the initial agent's session runs under (from resolveAgent). */
     agentPreset?: string
-    /** Shift+Tab session-mode cycle from cordis.yml `modes`; undefined →
-     *  the built-in default/plan/full cycle (sessionModes.ts). */
+    /** Session-mode cycle from cordis.yml `modes`; undefined → the built-in
+     *  default/plan/full cycle (sessionModes.ts). */
     modes?: readonly SessionModeSpec[]
     /** Handle of the initial agent; disposed when a rewind replaces it. */
     handle?: AgentHandle
@@ -1327,12 +1332,12 @@ export function createChannel(
   // absent the row, unknown plugin event types stay invisible in the
   // transcript, exactly as before the seam existed.
   const rendererRuntime = getHostRenderers(ctx.get('tuiRenderers') as TuiRendererRuntime | undefined)
-  // Shift+Tab session-mode cycle: cordis.yml `modes` wins; absent/empty/
-  // atom-less → the built-in default/plan/full cycle (sessionModes.ts).
+  // Session-mode cycle: cordis.yml `modes` wins; absent/empty/atom-less →
+  // the built-in default/plan/full cycle (sessionModes.ts).
   const { modes: sessionModes, dropped: droppedModeIds } = resolveSessionModes(options.modes)
   if (droppedModeIds.length > 0) {
     ctx.logger.warn(
-      `dsh-tui: session modes ${droppedModeIds.map(id => `"${id}"`).join(', ')} declare no plan/sandbox/approval atom; dropped from the Shift+Tab cycle`,
+      `dsh-tui: session modes ${droppedModeIds.map(id => `"${id}"`).join(', ')} declare no plan/sandbox/approval atom; dropped from the session-mode cycle`,
     )
   }
   const listeners = new Set<() => void>()
@@ -1743,6 +1748,28 @@ export function createChannel(
     return true
   }
 
+  /** Shift+Tab: cycle adapter-owned reasoning efforts in display order. An
+   *  unset effort starts from the adapter's materialized default. */
+  const cycleEffort = async (): Promise<void> => {
+    const resolved = await resolveEfforts()
+    if (resolved === 'unavailable') {
+      state.notify(t('effort-unavailable'), { color: 'error' })
+      return
+    }
+    if (resolved === 'error') return
+    if (resolved.efforts.length === 0) {
+      state.notify(t('effort-unsupported'), { color: 'warning' })
+      return
+    }
+    if (resolved.efforts.length === 1) {
+      state.notify(t('effort-single-tier', { name: resolved.efforts[0]!.name }), { color: 'warning' })
+      return
+    }
+    const currentId = state.reasoningEffort ?? resolved.defaultEffort
+    const currentIndex = resolved.efforts.findIndex(effort => effort.id === currentId)
+    applyEffort(resolved.efforts[(currentIndex + 1) % resolved.efforts.length]!)
+  }
+
   /** One composer image accompanying a registry-command line: structural
    *  mirror of rc.8's `EncodedImageAttachment` (`@deepseek-ai/dsh-attachment/
    *  types`). Kept local so older installs never resolve rc.8-only types. */
@@ -2001,8 +2028,8 @@ export function createChannel(
     state.emit()
   }
 
-  /** Shift+Tab: advance to the next configured session mode. Cycling starts
-   *  from the mode DERIVED from the session log (never a stored index), so
+  /** Advance to the next configured session mode. Cycling starts from the
+   *  mode DERIVED from the session log (never a stored index), so
    *  manual `/plan` use can never desync the cycle. */
   const cycleMode = async (): Promise<void> => {
     const index = deriveModeIndex(agent.session.events)
@@ -2970,6 +2997,7 @@ export function createChannel(
     },
     listEfforts,
     setEffort,
+    cycleEffort,
     cycleMode,
     clear() {
       state.rows.length = 0

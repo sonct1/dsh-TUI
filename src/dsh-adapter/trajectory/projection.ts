@@ -54,7 +54,7 @@ import {
   readTodos,
   type RawTrajEvent,
 } from './guards.js'
-import { BURST_MIN, type TrajKind, type TrajNode, type TrajTokens } from './types.js'
+import { BURST_MIN, type TrajKind, type TrajNode, type TrajRequest, type TrajTokens } from './types.js'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /** Per-step streaming timestamps, the source of TTFT and decode duration. */
@@ -129,6 +129,20 @@ interface FoldState {
   runStart: number
   /** Members of the run, kept so the burst node can adopt them. */
   runMembers: TrajNode[]
+  /** Previous request prompt snapshot, for detecting system/tool catalog changes. */
+  requestPrompt: { readonly system: string; readonly toolsJson: string; readonly seq: number } | undefined
+  /** Latest header supplies prompt/config and tool schemas to the next request. */
+  requestHeader: { readonly seq: number; readonly provider?: string; readonly model?: string } | undefined
+  /** Open request lifecycle rows keyed by request id, or the current step key. */
+  requests: Map<string, TrajNode>
+  /** Streaming assistant content retained until final message or interruption. */
+  streams: Map<string, { text: string; reasoning: string; other: string[] }>
+  /** Steps that produced a finalized assistant message. */
+  assistantSteps: Set<string>
+  /** User-message ids claimed by next-step steering inbox splices. */
+  steeringIds: Set<string>
+  /** Current next-step inbox ordering for splice bookkeeping. */
+  nextStepInbox: string[]
 }
 
 /** Fresh, empty fold state. */
@@ -150,6 +164,13 @@ function newState(): FoldState {
     runCount: 0,
     runStart: -1,
     runMembers: [],
+    requestPrompt: undefined,
+    requestHeader: undefined,
+    requests: new Map(),
+    streams: new Map(),
+    assistantSteps: new Set(),
+    steeringIds: new Set(),
+    nextStepInbox: [],
   }
 }
 
@@ -188,18 +209,91 @@ function cloneState(previous: FoldState): FoldState {
     runCount: previous.runCount,
     runStart: previous.runStart,
     runMembers: previous.runMembers,
+    requestPrompt: previous.requestPrompt,
+    requestHeader: previous.requestHeader,
+    requests: new Map(previous.requests),
+    streams: new Map([...previous.streams].map(([key, value]) => [key, { text: value.text, reasoning: value.reasoning, other: [...value.other] }])),
+    assistantSteps: new Set(previous.assistantSteps),
+    steeringIds: new Set(previous.steeringIds),
+    nextStepInbox: [...previous.nextStepInbox],
   }
 }
 
-/** Read the first text block of a model-message content array. */
+/** Read the first text block, including nested tool-result content arrays. */
 function firstText(content: unknown): string | undefined {
+  if (typeof content === 'string') return content
   if (!Array.isArray(content)) return undefined
   for (const block of content) {
     if (typeof block !== 'object' || block === null) continue
     const record = block as Record<string, unknown>
-    if (record.type === 'text' && typeof record.text === 'string') return record.text
+    if (typeof record.text === 'string') return record.text
+    const nested = firstText(record.content)
+    if (nested !== undefined) return nested
   }
   return undefined
+}
+
+/** Accumulate streamed assistant content without emitting one row per delta. */
+function updateStream(
+  stream: { text: string; reasoning: string; other: string[] },
+  chunk: unknown,
+): void {
+  if (typeof chunk === 'string') {
+    stream.text += chunk
+    return
+  }
+  if (typeof chunk !== 'object' || chunk === null) return
+  const record = chunk as Record<string, unknown>
+  const type = typeof record.type === 'string' ? record.type : 'unknown'
+  const text = typeof record.text === 'string'
+    ? record.text
+    : typeof record.argumentsDelta === 'string'
+      ? record.argumentsDelta
+      : ''
+  if (type.includes('reasoning')) {
+    stream.reasoning += text
+    return
+  }
+  if (type.includes('text') || type === 'delta') {
+    stream.text += text
+    return
+  }
+  if (type === 'block-end' && typeof record.block === 'object' && record.block !== null) {
+    const block = record.block as Record<string, unknown>
+    if (block.type === 'reasoning' && typeof block.text === 'string') stream.reasoning += block.text
+    else if (block.type === 'text' && typeof block.text === 'string') stream.text += block.text
+    else stream.other.push(`[${String(block.type ?? 'block')}]`)
+    return
+  }
+  if (type === 'usage' || type === 'finish' || type === 'block-start') return
+  const name = typeof record.name === 'string' ? ` ${record.name}` : ''
+  const id = typeof record.id === 'string' ? ` ${record.id}` : ''
+  stream.other.push(`[${type}${name}${id}${text === '' ? '' : ` ${text}`}]`)
+}
+
+/** Whether a streamed chunk carries the model's first observable token. */
+function isTokenChunk(chunk: unknown): boolean {
+  if (typeof chunk === 'string') return chunk !== ''
+  if (typeof chunk !== 'object' || chunk === null) return false
+  const record = chunk as Record<string, unknown>
+  const type = typeof record.type === 'string' ? record.type : ''
+  if (type === 'text-delta' || type === 'reasoning-delta' || type === 'tool-call-delta' || type === 'delta') return true
+  if (type === 'block-end' && typeof record.block === 'object' && record.block !== null) {
+    const block = record.block as Record<string, unknown>
+    return typeof block.text === 'string' && block.text !== ''
+  }
+  return false
+}
+
+/** Whether an official nested tool-result block marks the call as failed. */
+function resultIsError(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const record = block as Record<string, unknown>
+    if (record.isError === true || resultIsError(record.content)) return true
+  }
+  return false
 }
 
 /** Read token accounting off an `assistant/message` payload. */
@@ -211,13 +305,12 @@ function readTokens(usage: unknown): TrajTokens | undefined {
     return typeof value === 'number' && Number.isFinite(value) ? value : 0
   }
   const tokens: TrajTokens = {
-    input: pick('input'),
-    output: pick('output'),
-    // The reasoning-token field has varied by adapter generation; accept both
-    // spellings and fall back to zero rather than dropping the whole usage.
-    think: pick('think') || pick('reasoning'),
-    cacheRead: pick('cacheRead'),
-    cacheWrite: pick('cacheWrite'),
+    // Real provider usage uses *Tokens; older adapters emitted short aliases.
+    input: pick('inputTokens') || pick('input'),
+    output: pick('outputTokens') || pick('output'),
+    think: pick('reasoningTokens') || pick('think') || pick('reasoning'),
+    cacheRead: pick('cacheReadTokens') || pick('cacheRead'),
+    cacheWrite: pick('cacheWriteTokens') || pick('cacheWrite'),
   }
   const total =
     tokens.input + tokens.output + tokens.think + tokens.cacheRead + tokens.cacheWrite
@@ -225,6 +318,15 @@ function readTokens(usage: unknown): TrajTokens | undefined {
 }
 
 /** Close a bracket node with its own duration and outcome. */
+function requestKey(data: Record<string, unknown> | undefined, turn: number, step: number | undefined): string {
+  const id = data?.requestId ?? data?.id
+  return typeof id === 'string' ? id : `${turn}:${step ?? 0}`
+}
+
+function requestFor(state: FoldState, data: Record<string, unknown> | undefined, turn: number, step: number | undefined): TrajNode | undefined {
+  return state.requests.get(requestKey(data, turn, step)) ?? state.requests.get(`${turn}:${step ?? 0}`)
+}
+
 function close(
   state: FoldState,
   node: TrajNode | undefined,
@@ -330,8 +432,37 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
         typeof reason === 'object' && reason !== null
           ? (reason as Record<string, unknown>).kind
           : undefined
-      close(state, open, event, kind === 'completed' ? 'ok' : 'error', typeof kind === 'string' && kind !== 'completed' ? kind : undefined)
+      const turnStatus = kind === 'completed' ? 'ok' : 'error'
+      const turnError = typeof kind === 'string' && kind !== 'completed' ? kind : undefined
+      close(state, open, event, turnStatus, turnError)
       state.turns.delete(turn)
+      const closedRequests = new Set<TrajNode>()
+      for (const [key, request] of [...state.requests]) {
+        if (request.turn !== turn || closedRequests.has(request)) continue
+        closedRequests.add(request)
+        const stepKey = `${request.turn}:${request.step ?? 0}`
+        if (state.assistantSteps.has(stepKey)) {
+          state.requests.delete(key)
+          continue
+        }
+        const stream = state.streams.get(stepKey)
+        if (stream !== undefined) {
+          if (stream.reasoning.trim() !== '') {
+            push(state, nodes, { ...base, kind: 'thinking', turn, step: request.step, label: 'interrupted', detail: stream.reasoning, status: 'error' })
+          }
+          const output = [stream.text, ...stream.other].filter(value => value.trim() !== '').join('\n')
+          if (output !== '') {
+            push(state, nodes, { ...base, kind: 'assistant', turn, step: request.step, label: 'interrupted', detail: output, status: 'error' })
+          }
+        }
+        request.request ??= {}
+        request.request.completionTime ??= event.time
+        close(state, request, event, turnStatus, turnError)
+        push(state, nodes, request)
+        state.requests.delete(key)
+      }
+      for (const key of [...state.streams.keys()]) if (key.startsWith(`${turn}:`)) state.streams.delete(key)
+      for (const key of [...state.assistantSteps]) if (key.startsWith(`${turn}:`)) state.assistantSteps.delete(key)
       state.step = undefined
       return
     }
@@ -345,6 +476,18 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       const node: TrajNode = { ...base, kind: 'step', turn, step, label: `step ${step}`, status: 'running' }
       state.steps.set(`${turn}:${step}`, node)
       push(state, nodes, node)
+      // A step is a request even when it is interrupted before assistant/message.
+      const header = state.requestHeader
+      const request: TrajRequest = {
+        provider: header?.provider,
+        model: header?.model,
+        promptSeq: state.requestPrompt?.seq,
+        configSeq: header?.seq,
+        headerSeq: header?.seq,
+      }
+      const requestNode: TrajNode = { ...base, kind: 'request', turn, step, label: header?.model ?? 'request', status: 'running', request }
+      state.requests.set(`${turn}:${step}`, requestNode)
+      state.streams.set(`${turn}:${step}`, { text: '', reasoning: '', other: [] })
       return
     }
 
@@ -356,7 +499,96 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       state.steps.delete(key)
       const slot = timing.get(key)
       if (slot !== undefined) slot.endTime = event.time
+      const request = state.requests.get(key)
+      if (request !== undefined) {
+        request.request ??= {}
+        request.request.completionTime ??= event.time
+        const stream = state.streams.get(key)
+        const hasAssistant = state.assistantSteps.has(key)
+        if (!hasAssistant && stream !== undefined) {
+          if (stream.reasoning.trim() !== '') {
+            push(state, nodes, { ...base, kind: 'thinking', turn, step, label: 'interrupted', detail: stream.reasoning, status: 'error' })
+          }
+          const output = [stream.text, ...stream.other].filter(value => value.trim() !== '').join('\n')
+          if (output !== '') {
+            push(state, nodes, { ...base, kind: 'assistant', turn, step, label: 'interrupted', detail: output, status: 'error' })
+          }
+          close(state, request, event, 'error', 'interrupted')
+          push(state, nodes, request)
+        }
+        state.requests.delete(key)
+        state.streams.delete(key)
+      }
+      state.streams.delete(key)
+      state.assistantSteps.delete(key)
       state.step = undefined
+      return
+    }
+
+    case 'request/start':
+    case 'request/running': {
+      const turn = typeof data?.turn === 'number' ? data.turn : state.turn
+      const step = typeof data?.step === 'number' ? data.step : state.step
+      const key = requestKey(data, turn, step)
+      let request = state.requests.get(key) ?? state.requests.get(`${turn}:${step ?? 0}`)
+      if (request === undefined) {
+        const header = state.requestHeader
+        request = {
+          ...base,
+          kind: 'request',
+          turn,
+          step,
+          label: header?.model ?? 'request',
+          status: 'running',
+          request: {
+            id: typeof data?.requestId === 'string' ? data.requestId : typeof data?.id === 'string' ? data.id : undefined,
+            provider: header?.provider,
+            model: header?.model,
+            promptSeq: state.requestPrompt?.seq,
+            configSeq: header?.seq,
+            headerSeq: header?.seq,
+          },
+        }
+      }
+      state.requests.set(key, request)
+      state.requests.set(`${turn}:${step ?? 0}`, request)
+      return
+    }
+
+    case 'request/complete':
+    case 'request/error': {
+      const turn = typeof data?.turn === 'number' ? data.turn : state.turn
+      const step = typeof data?.step === 'number' ? data.step : state.step
+      const request = requestFor(state, data, turn, step)
+      if (request !== undefined) {
+        const tokens = readTokens(data?.usage)
+        request.request ??= {}
+        request.request.usage = tokens
+        request.request.completionTime = event.time
+        const error = data?.error
+        const code = typeof error === 'object' && error !== null && typeof (error as Record<string, unknown>).code === 'string'
+          ? (error as Record<string, unknown>).code as string
+          : undefined
+        close(state, request, event, event.type === 'request/error' ? 'error' : 'ok', code)
+        const stepKey = `${turn}:${step ?? 0}`
+        if (!state.assistantSteps.has(stepKey)) {
+          const stream = state.streams.get(stepKey)
+          if (stream !== undefined) {
+            if (stream.reasoning.trim() !== '') {
+              push(state, nodes, { ...base, kind: 'thinking', turn, step, label: 'interrupted', detail: stream.reasoning, status: 'error' })
+            }
+            const output = [stream.text, ...stream.other].filter(value => value.trim() !== '').join('\n')
+            if (output !== '') {
+              push(state, nodes, { ...base, kind: 'assistant', turn, step, label: 'interrupted', detail: output, status: 'error' })
+            }
+          }
+          push(state, nodes, request)
+        }
+        state.requests.delete(requestKey(data, turn, step))
+        state.requests.delete(`${turn}:${step ?? 0}`)
+        state.streams.delete(`${turn}:${step ?? 0}`)
+        state.assistantSteps.delete(`${turn}:${step ?? 0}`)
+      }
       return
     }
 
@@ -367,8 +599,45 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       const step = typeof data?.step === 'number' ? data.step : (state.step ?? 0)
       const slot = timing.get(`${turn}:${step}`)
       if (slot === undefined) return
-      slot.firstChunk ??= event.time
-      slot.lastChunk = event.time
+      const tokenChunk = isTokenChunk(data?.chunk)
+      if (tokenChunk) {
+        slot.firstChunk ??= event.time
+        slot.lastChunk = event.time
+      }
+      const request = requestFor(state, data, turn, step)
+      if (request !== undefined && tokenChunk) {
+        request.request ??= {}
+        request.request.firstTokenTime ??= event.time
+      }
+      const stream = state.streams.get(`${turn}:${step}`) ?? { text: '', reasoning: '', other: [] }
+      updateStream(stream, data?.chunk)
+      state.streams.set(`${turn}:${step}`, stream)
+      const chunk = data?.chunk
+      if (typeof chunk === 'object' && chunk !== null && (chunk as Record<string, unknown>).type === 'usage') {
+        const usage = readTokens((chunk as Record<string, unknown>).usage)
+        if (request !== undefined && usage !== undefined) {
+          request.request ??= {}
+          request.request.usage = usage
+        }
+      }
+      return
+    }
+
+    case 'agent/inbox/spliced': {
+      if (data?.target !== 'next-step') return
+      const start = typeof data.start === 'number' ? Math.max(0, data.start) : 0
+      const removedCount = typeof data.removedCount === 'number' ? Math.max(0, data.removedCount) : 0
+      const inserted = Array.isArray(data.inserted)
+        ? data.inserted.flatMap(item => {
+            if (typeof item === 'string') return [item]
+            if (typeof item !== 'object' || item === null) return []
+            const id = (item as Record<string, unknown>).id
+            return typeof id === 'string' ? [id] : []
+          })
+        : []
+      const removed = state.nextStepInbox.splice(start, removedCount, ...inserted)
+      for (const id of inserted) state.steeringIds.delete(id)
+      if (data.outcome !== 'canceled') for (const id of removed) state.steeringIds.add(id)
       return
     }
 
@@ -383,6 +652,8 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       // A direct human prompt is a USER row; everything else on the user-role
       // surface (skill bodies, file-change notices, goal continuations) is an
       // injected CONTEXT row — same distinction the official ledger draws.
+      const messageId = typeof data?.id === 'string' ? data.id : undefined
+      const steering = messageId !== undefined && state.steeringIds.has(messageId)
       const isHuman = sourceKind === 'user'
       const sourceName =
         typeof source === 'object' && source !== null
@@ -393,7 +664,7 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
         kind: isHuman ? 'user' : 'context',
         turn: state.turn,
         step: state.step,
-        label: isHuman ? '' : (sourceName ?? (typeof sourceKind === 'string' ? sourceKind : 'context')),
+        label: steering ? 'steering' : isHuman ? '' : (sourceName ?? (typeof sourceKind === 'string' ? sourceKind : 'context')),
         detail: text,
       })
       return
@@ -408,7 +679,20 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
           ? (message as Record<string, unknown>).content
           : undefined
       const tokens = readTokens(data?.usage)
+      const stepKey = `${turn}:${step ?? 0}`
+      state.assistantSteps.add(stepKey)
+      state.streams.delete(stepKey)
+      const request = requestFor(state, data, turn, step)
+      if (request !== undefined) {
+        request.request ??= {}
+        request.request.usage = tokens
+        request.request.completionTime ??= event.time
+        close(state, request, event, 'ok')
+        state.requests.delete(requestKey(data, turn, step))
+        state.requests.delete(`${turn}:${step ?? 0}`)
+      }
       let first = true
+      let emitted = false
       if (Array.isArray(content)) {
         for (const block of content) {
           if (typeof block !== 'object' || block === null) continue
@@ -427,9 +711,26 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
             // Usage belongs to the step, not to each block: attach it to the
             // first row so the hotspot aggregate counts it exactly once.
             tokens: first ? tokens : undefined,
+            request: first ? request?.request : undefined,
           })
+          emitted = true
           first = false
         }
+      }
+      if (!emitted && Array.isArray(content) && content.some(block =>
+        typeof block === 'object' && block !== null &&
+        ['tool_use', 'tool-call', 'tool_call'].includes(String((block as Record<string, unknown>).type)),
+      )) {
+        push(state, nodes, {
+          ...base,
+          kind: 'assistant',
+          turn,
+          step,
+          label: 'tool call only',
+          detail: 'Tool call only',
+          tokens,
+          request: request?.request,
+        })
       }
       return
     }
@@ -438,6 +739,18 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       const callId = typeof data?.callId === 'string' ? data.callId : undefined
       const name = typeof data?.name === 'string' ? data.name : 'tool'
       const args = typeof data?.arguments === 'string' ? data.arguments : undefined
+      const ownerRequest = requestFor(
+        state,
+        data,
+        typeof data?.turn === 'number' ? data.turn : state.turn,
+        typeof data?.step === 'number' ? data.step : state.step,
+      )?.request ?? (state.requestHeader === undefined ? undefined : {
+        provider: state.requestHeader.provider,
+        model: state.requestHeader.model,
+        promptSeq: state.requestPrompt?.seq,
+        configSeq: state.requestHeader.seq,
+        headerSeq: state.requestHeader.seq,
+      })
       const node: TrajNode = {
         ...base,
         kind: 'tool',
@@ -446,6 +759,10 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
         label: name,
         detail: args,
         callId,
+        parentCallId: typeof data?.parentCallId === 'string' ? data.parentCallId : undefined,
+        rootCallId: typeof data?.rootCallId === 'string' ? data.rootCallId : callId,
+        depth: typeof data?.depth === 'number' ? data.depth : 0,
+        request: ownerRequest,
         status: 'running',
       }
       if (callId !== undefined) state.tools.set(callId, node)
@@ -471,12 +788,12 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
         typeof error === 'object' && error !== null
           ? ((error as Record<string, unknown>).code as string | undefined)
           : undefined
-      open.outcome = firstText(
+      const content =
         typeof message === 'object' && message !== null
           ? (message as Record<string, unknown>).content
-          : undefined,
-      )
-      close(state, open, event, error === undefined ? 'ok' : 'error', code)
+          : undefined
+      open.outcome = firstText(content)
+      close(state, open, event, error === undefined && !resultIsError(content) ? 'ok' : 'error', code)
       state.tools.delete(callId)
       return
     }
@@ -484,6 +801,16 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
     case 'tool/code-dispatch-start': {
       const payload = readDispatch(event.data)
       if (payload === undefined) return
+      const ownerRequest = requestFor(state, data, state.turn, state.step)?.request ?? (state.requestHeader === undefined ? undefined : {
+        provider: state.requestHeader.provider,
+        model: state.requestHeader.model,
+        promptSeq: state.requestPrompt?.seq,
+        configSeq: state.requestHeader.seq,
+        headerSeq: state.requestHeader.seq,
+      })
+      const parent = payload.parentCallId === undefined
+        ? undefined
+        : state.subtools.get(payload.parentCallId) ?? state.tools.get(payload.parentCallId)
       const node: TrajNode = {
         ...base,
         kind: 'subtool',
@@ -493,6 +820,10 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
         detail: payload.args,
         callId: payload.rootCallId,
         subCallId: payload.subCallId,
+        parentCallId: payload.parentCallId,
+        rootCallId: payload.rootCallId,
+        depth: (parent?.depth ?? 0) + 1,
+        request: ownerRequest,
         status: 'running',
       }
       state.subtools.set(payload.subCallId, node)
@@ -624,11 +955,39 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
       return
     }
 
+    case 'compaction/summary':
+    case 'compaction/checkpoint': {
+      const payload = readCompaction(event.data)
+      const open = state.compactions.at(-1)
+      if (open !== undefined) {
+        open.outcome = payload.summary ?? payload.output ?? open.outcome
+        open.request = { provider: payload.provider, model: payload.model, usage: readTokens(payload.usage) }
+      }
+      return
+    }
+
+    case 'compaction/error': {
+      const open = state.compactions.pop()
+      const payload = readCompaction(event.data)
+      if (open !== undefined) {
+        open.outcome = payload.summary ?? payload.output ?? payload.error
+        open.request = { provider: payload.provider, model: payload.model, usage: readTokens(payload.usage) }
+      }
+      close(state, open, event, 'error', payload.error)
+      return
+    }
+
     case 'compaction/end': {
       const open = state.compactions.pop()
       const payload = readCompaction(event.data)
-      if (open !== undefined && payload.removed !== undefined) {
-        open.outcome = `-${payload.removed}`
+      if (open !== undefined) {
+        open.outcome = payload.summary ?? payload.output ?? open.outcome ?? (payload.removed === undefined ? undefined : `-${payload.removed}`)
+        open.request = {
+          ...open.request,
+          provider: payload.provider ?? open.request?.provider,
+          model: payload.model ?? open.request?.model,
+          usage: readTokens(payload.usage) ?? open.request?.usage,
+        }
       }
       close(state, open, event, 'ok')
       return
@@ -636,16 +995,31 @@ function consume(state: FoldState, nodes: TrajNode[], timing: Map<string, StepTi
 
     case 'request/header': {
       const payload = readRequestHeader(event.data)
-      // Only a *change* is a row: 'initial' and 'resume' restate the route
-      // the header line already shows, and would add one noise row per turn.
-      if (payload === undefined || payload.reason !== 'change') return
+      if (payload === undefined) return
+      const toolsJson = JSON.stringify(payload.tools)
+      const previous = state.requestPrompt
+      const initial = previous === undefined && (payload.reason === 'initial' || payload.reason === undefined)
+      const systemChanged = previous !== undefined && previous.system !== payload.system
+      const toolsChanged = previous !== undefined && previous.toolsJson !== toolsJson
+      state.requestPrompt = { system: payload.system, toolsJson, seq: event.seq }
+      state.requestHeader = { seq: event.seq, provider: payload.provider, model: payload.model }
+      if (!initial && !systemChanged && !toolsChanged) return
+      const label = initial
+        ? 'initial prompt'
+        : systemChanged && toolsChanged
+          ? 'system + tools changed'
+          : systemChanged
+            ? 'system prompt changed'
+            : 'tools changed'
       push(state, nodes, {
         ...base,
         kind: 'system',
         turn: state.turn,
         step: state.step,
-        label: payload.model ?? 'route',
-        detail: payload.effort === undefined ? undefined : `effort=${payload.effort}`,
+        label,
+        detail: [payload.model, payload.effort === undefined ? undefined : `effort=${payload.effort}`]
+          .filter((value): value is string => value !== undefined)
+          .join(' · ') || undefined,
       })
       return
     }

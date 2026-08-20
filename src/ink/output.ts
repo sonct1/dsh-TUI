@@ -1078,9 +1078,12 @@ function writeLineToScreen(
         for (let i = 0; i < spacesToNextStop && offsetX < screenWidth; i++) {
           setCellAt(screen, offsetX, y, {
             char: ' ',
-            styleId: stylePool.none,
+            // A tab is whitespace inside the current styled run. Dropping its
+            // style punches terminal-default background holes through parent
+            // fills (most visible in indented Read output on tool cards).
+            styleId: character.styleId,
             width: CellWidth.Narrow,
-            hyperlink: undefined,
+            hyperlink: character.hyperlink,
           })
           offsetX++
         }

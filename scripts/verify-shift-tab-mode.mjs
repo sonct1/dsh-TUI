@@ -1,8 +1,8 @@
 /**
- * Headless verification of the Shift+Tab session-mode wiring: renders the
- * compiled PromptInput with a stub channel and injects `\x1b[Z` (backtab —
- * the escape sequence a real terminal sends for Shift+Tab), asserting that
- * exactly one `channel.cycleMode()` fires and no send path does.
+ * Headless verification of the Shift+Tab reasoning-effort wiring: renders
+ * the compiled PromptInput with a stub channel and injects `\x1b[Z` (backtab
+ * — the escape sequence a real terminal sends for Shift+Tab), asserting that
+ * exactly one `channel.cycleEffort()` fires and no send path does.
  *
  * Run with plain node against the compiled lib:
  *   node scripts/verify-shift-tab-mode.mjs
@@ -43,14 +43,15 @@ function makeStreams() {
 }
 
 function makeChannel() {
-  const cycled = []
+  const cycledEfforts = []
   const submitted = []
   const steered = []
   return {
     working: false,
     mode: { id: 'default', plan: false },
     modeIndex: 0,
-    cycleMode() { cycled.push(Date.now()) },
+    cycleEffort() { cycledEfforts.push(Date.now()) },
+    cycleMode() {},
     commandList: [],
     notifications: [],
     contextWindow: undefined,
@@ -62,7 +63,7 @@ function makeChannel() {
     cancel() {},
     interruptAndDeliver: () => 0,
     listFiles: async () => [],
-    cycled,
+    cycledEfforts,
     submitted,
     steered,
   }
@@ -81,22 +82,22 @@ const instance = await render(
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
 await sleep(600)
-// Backtab with text in the editor: mode cycling must win over the plain-Tab
+// Backtab with text in the editor: effort cycling must win over the plain-Tab
 // completion arm (the parser reports backtab as key.tab + key.shift).
 stdin.write('hello')
 await sleep(150)
 stdin.write('\x1b[Z')
 await sleep(300)
-check('backtab cycles the session mode once', channel.cycled.length === 1, JSON.stringify(channel.cycled.length))
+check('backtab cycles reasoning effort once', channel.cycledEfforts.length === 1, JSON.stringify(channel.cycledEfforts.length))
 check('backtab does not submit or steer', channel.submitted.length === 0 && channel.steered.length === 0, JSON.stringify([channel.submitted, channel.steered]))
 
 // A second backtab cycles again; Tab alone still completes (no steer).
 stdin.write('\x1b[Z')
 await sleep(300)
-check('second backtab cycles again', channel.cycled.length === 2, JSON.stringify(channel.cycled.length))
+check('second backtab cycles effort again', channel.cycledEfforts.length === 2, JSON.stringify(channel.cycledEfforts.length))
 stdin.write('\t')
 await sleep(300)
-check('plain Tab does not cycle the mode', channel.cycled.length === 2, JSON.stringify(channel.cycled.length))
+check('plain Tab does not cycle effort', channel.cycledEfforts.length === 2, JSON.stringify(channel.cycledEfforts.length))
 instance.unmount()
 
 process.exit(failed)

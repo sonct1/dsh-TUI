@@ -19,7 +19,13 @@ export {
 
 export { aggregate, forEachCall, sortRows } from './aggregate.js'
 
-export { inspectNode, type InspectDetail, type InspectSection } from './inspect.js'
+export {
+  inspectNode,
+  type InspectDetail,
+  type InspectSection,
+  type InspectTab,
+  type InspectTabId,
+} from './inspect.js'
 
 export { channelOf, columnOfIndex, dominantChannel, projectWave } from './wave.js'
 

@@ -86,7 +86,7 @@ export interface Config {
   toolBackground?: ToolBackground
   /** Status-footer field visibility and compact presentation preferences. */
   statusBar?: Partial<StatusBarConfig>
-  /** Shift+Tab session-mode cycle (array order IS the cycle order; index 0
+  /** Configured session-mode cycle (array order IS the cycle order; index 0
    *  is the unmarked base mode). Each entry bundles any subset of the
    *  `plan`/`sandbox`/`approval` atoms; absent → the built-in
    *  default/plan/full cycle (see sessionModes.ts). */

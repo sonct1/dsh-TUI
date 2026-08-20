@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /** Build the current checkout, pack it, and install it into the dsh-tui profile. */
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const isWindows = process.platform === 'win32'
@@ -60,6 +60,55 @@ function output(command, args, options = {}) {
 function requireCommand(command, args = ['--version']) {
   const result = spawnSync(command, args, { stdio: 'ignore', shell: isWindows })
   if (result.error || result.status !== 0) throw new Error(`required command not found: ${command}`)
+}
+
+/**
+ * pnpm resolves the profile's existing file: dependency before replacing it.
+ * If an older build tarball was cleaned up, provide a temporary copy so the
+ * atomic add can proceed and rewrite package.json/lockfile to the new tarball.
+ */
+function profileDirectory(profile) {
+  const dshHome = resolve(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'))
+  return join(dshHome, 'profiles', profile)
+}
+
+function ensureReleaseAgeExclusions(profile) {
+  const workspacePath = join(profileDirectory(profile), 'pnpm-workspace.yaml')
+  if (!existsSync(workspacePath)) return
+
+  let text = readFileSync(workspacePath, 'utf8')
+  const packages = ["'@deepseek-harness-tui/dsh-tui'", 'dsh-working-activity']
+  text = text
+    .replace(/^([ \t]*-[ \t]*)['"]?@deepseek-harness-tui\/dsh-tui(?:@[^'"\s]+)?['"]?[ \t]*$/gmu, `$1${packages[0]}`)
+    .replace(/^([ \t]*-[ \t]*)dsh-working-activity(?:@[^\s]+)?[ \t]*$/gmu, `$1${packages[1]}`)
+
+  if (!/^minimumReleaseAgeExclude:[ \t]*$/mu.test(text)) {
+    text = `${text.trimEnd()}\nminimumReleaseAgeExclude:\n`
+  }
+  for (const packageName of packages) {
+    const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    if (new RegExp(`^[ \\t]*-[ \\t]*${escaped}[ \\t]*$`, 'mu').test(text)) continue
+    text = text.replace(
+      /^minimumReleaseAgeExclude:[ \t]*$/mu,
+      match => `${match}\n  - ${packageName}`,
+    )
+  }
+  writeFileSync(workspacePath, text.endsWith('\n') ? text : `${text}\n`)
+}
+
+function provideMissingPreviousTarball(profile, replacementTarball) {
+  const manifestPath = join(profileDirectory(profile), 'package.json')
+  if (!existsSync(manifestPath)) return undefined
+
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const specifier = manifest.dependencies?.['@deepseek-harness-tui/dsh-tui']
+  if (typeof specifier !== 'string' || !specifier.startsWith('file:')) return undefined
+
+  const previousTarball = resolve(specifier.slice('file:'.length))
+  if (existsSync(previousTarball) || previousTarball === replacementTarball) return undefined
+  copyFileSync(replacementTarball, previousTarball)
+  console.log(`build-install-local: temporarily restored missing dependency ${previousTarball}`)
+  return previousTarball
 }
 
 function createPnpmShim() {
@@ -143,8 +192,13 @@ try {
     .find(line => line.endsWith('.tgz'))
   if (!tarballName) throw new Error('npm pack did not report a .tgz filename')
   const tarballPath = resolve(repoRoot, tarballName)
-
-  run('dsh', ['plugin', '--profile', profile, 'add', tarballPath], { env })
+  ensureReleaseAgeExclusions(profile)
+  const restoredTarball = provideMissingPreviousTarball(profile, tarballPath)
+  try {
+    run('dsh', ['plugin', '--profile', profile, 'add', tarballPath], { env })
+  } finally {
+    if (restoredTarball !== undefined && existsSync(restoredTarball)) unlinkSync(restoredTarball)
+  }
   console.log(`build-install-local: installed ${tarballName} into profile ${profile}`)
 } catch (error) {
   console.error(`build-install-local: ${error instanceof Error ? error.message : String(error)}`)

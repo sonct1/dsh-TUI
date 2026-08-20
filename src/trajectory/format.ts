@@ -127,6 +127,7 @@ export const KIND_BADGE: Record<TrajKind, string> = {
   system: ' SYS  ',
   context: ' CTX  ',
   todo: ' TODO ',
+  request: ' REQ  ',
 }
 
 /** One-character badge for the narrowest layout tier. */
@@ -144,6 +145,7 @@ export const KIND_GLYPH: Record<TrajKind, string> = {
   system: '⚙',
   context: '⊕',
   todo: '✓',
+  request: '◇',
 }
 
 /**
@@ -168,6 +170,7 @@ export const KIND_FG: Record<TrajKind, keyof Theme> = {
   system: 'planMode',
   context: 'success',
   todo: 'planMode',
+  request: 'permission',
 }
 
 /**
@@ -185,6 +188,7 @@ export const KIND_BADGE_BG: Partial<Record<TrajKind, keyof Theme>> = {
   system: 'diffAddedDimmed',
   context: 'diffAdded',
   todo: 'diffAdded',
+  request: 'diffAddedDimmed',
 }
 
 /**

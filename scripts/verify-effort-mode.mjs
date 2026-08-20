@@ -1,6 +1,6 @@
 /**
- * Channel-level verification of the /effort API and the configurable
- * Shift+Tab session-mode cycle: creates a real Channel via createChannel
+ * Channel-level verification of the /effort API, Shift+Tab reasoning-effort
+ * cycle, and configurable session modes: creates a real Channel via createChannel
  * against a minimal fake ctx/agent (llm/commands/approval service stubs),
  * then asserts
  *   - listEfforts/setEffort against the stubbed adapter level list
@@ -123,6 +123,9 @@ const baseOptions = {
     JSON.stringify(listed.efforts.map(e => e.id)),
   )
 
+  await channel.cycleEffort()
+  check('cycleEffort starts after adapter default high', channel.reasoningEffort === 'max', String(channel.reasoningEffort))
+
   const ok = await channel.setEffort('max')
   check('setEffort(max) → true', ok === true)
   check('state.reasoningEffort = max', channel.reasoningEffort === 'max', String(channel.reasoningEffort))
@@ -138,6 +141,13 @@ const baseOptions = {
     channel.notifications.some(n => n.text.includes('bogus')),
     JSON.stringify(channel.notifications.map(n => n.text)),
   )
+
+  await channel.cycleEffort()
+  check('cycleEffort wraps max → off', channel.reasoningEffort === 'off', String(channel.reasoningEffort))
+  await channel.cycleEffort()
+  check('cycleEffort advances off → high', channel.reasoningEffort === 'high', String(channel.reasoningEffort))
+  const cycledPrefRaw = readFileSync(join(homedir(), '.dsh-tui', 'effort.json'), 'utf8')
+  check('cycled effort pref persisted', cycledPrefRaw.includes('high'), cycledPrefRaw)
 }
 
 // ---- default cycle: default → plan → full → default ----------------------

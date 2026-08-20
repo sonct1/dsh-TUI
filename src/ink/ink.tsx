@@ -740,22 +740,16 @@ export default class Ink {
     // and no move is emitted.
     const decl = this.cursorDeclaration;
     const rect = decl !== null ? nodeCache.get(decl.node) : undefined;
-    // Main-screen inline mode stores node rectangles in frame coordinates,
-    // while the physical terminal only exposes the viewport tail once the
-    // frame is taller than the terminal. Convert the declared row to that
-    // visible coordinate system before emitting the relative cursor move.
-    // Without this subtraction a long streaming frame asks the terminal to
-    // move to an off-screen row; terminals clamp it at the bottom, leaving
-    // the virtual and physical cursor origins out of sync for the next diff.
-    // Offset is exactly the rows pushed into scrollback: H - V when the frame
-    // outgrows the viewport, 0 when it fits (H <= V). A +1 here would nudge a
-    // just-fitting frame (H === V) up one row, misplacing the input caret.
-    const visibleFrameOffset = this.altScreenActive
-      ? 0
-      : Math.max(0, frame.screen.height - frame.viewport.height);
+    // Keep the declaration in frame coordinates, matching frame.cursor and
+    // displayCursor below. In inline mode both points are shifted by the same
+    // scrollback offset on the physical terminal, so their relative delta is
+    // already correct. Converting only target.y to viewport coordinates mixes
+    // coordinate systems: oversized CUU/CUD moves clamp at a terminal margin,
+    // and the next incremental diff starts from a cursor position that never
+    // physically existed, garbling rows as the frame grows.
     const target = decl !== null && rect !== undefined ? {
       x: rect.x + decl.relativeX,
-      y: rect.y + decl.relativeY - visibleFrameOffset
+      y: rect.y + decl.relativeY
     } : null;
     const parked = this.displayCursor;
     // Diagnostics: the resolved park target per frame (DSH_TUI_DEBUG only).

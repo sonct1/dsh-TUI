@@ -15,14 +15,14 @@
  *   run:                   still-running rows only
  *   >10s  <500ms           own duration bounds (ms / s / m suffixes)
  *   tok>1k                 token bounds
- *   anything else          free text over label, detail and outcome
+ *   anything else          free text over all inspectable record content
  * ```
  *
  * Everything is AND-ed. An unparseable term degrades to free text rather than
  * erroring, so a half-typed query still narrows sensibly while you type.
  */
 
-import { burstErrors, burstRunning, previewText } from '../dsh-adapter/trajectory/index.js'
+import { burstErrors, burstRunning, inspectNode } from '../dsh-adapter/trajectory/index.js'
 import type { TrajKind, TrajNode } from '../dsh-adapter/types.js'
 
 /** One parsed predicate. */
@@ -118,26 +118,46 @@ export function parseQuery(raw: string): TrajQuery {
 
 /** Total tokens attributed to a row. */
 function tokenTotal(node: TrajNode): number {
-  const t = node.tokens
+  const t = node.request?.usage ?? node.tokens
   return t === undefined ? 0 : t.input + t.output + t.think
 }
 
 /**
- * Free-text haystack for one row.
- *
- * Bounded on purpose: a 200 KB tool result must not cost a full scan per row
- * per keystroke, and a match beyond the first few hundred characters is not
- * something the one-line ledger could show anyway.
+ * Full-text index cached by node identity. The projection mutates nodes only
+ * to complete brackets; the record snapshot remains immutable, so the costly
+ * inspection/stringification happens once per arriving row, never per key.
  */
-function haystack(node: TrajNode): string {
-  return `${node.label} ${previewText(node.detail ?? '', 200)} ${previewText(node.outcome ?? '', 200)}`.toLowerCase()
+const fullTextCache = new WeakMap<TrajNode, { readonly signature: string; readonly text: string }>()
+
+function searchSignature(node: TrajNode): string {
+  const members = node.burst?.members ?? [node]
+  return members.map(member => [
+    member.seq, member.endSeq, member.status, member.detail, member.outcome,
+    member.request?.firstTokenTime, member.request?.completionTime,
+  ].join('\u0000')).join('\u0001')
+}
+
+function fullText(node: TrajNode, events: readonly unknown[]): string {
+  const signature = searchSignature(node)
+  const cached = fullTextCache.get(node)
+  if (cached?.signature === signature) return cached.text
+  const members = node.burst?.members ?? [node]
+  const text = members.map(member => {
+    const detail = inspectNode(member, events as never)
+    const sections = detail?.tabs.flatMap(tab => tab.sections.map(section => `${section.title}\n${section.body}`)) ?? []
+    return [member.label, member.detail, member.outcome, detail?.title, ...(detail?.facts ?? []), ...sections]
+      .filter((part): part is string => typeof part === 'string')
+      .join('\n')
+  }).join('\n').toLowerCase()
+  fullTextCache.set(node, { signature, text })
+  return text
 }
 
 /** Evaluate one row against one term. */
-function matchesTerm(node: TrajNode, term: Term): boolean {
+function matchesTerm(node: TrajNode, term: Term, events: readonly unknown[]): boolean {
   switch (term.kind) {
     case 'text':
-      return haystack(node).includes(term.value)
+      return fullText(node, events).includes(term.value)
     case 'tool':
       return (node.kind === 'tool' || node.kind === 'subtool') && node.label.toLowerCase() === term.value
     case 'rowKind':
@@ -161,9 +181,9 @@ function matchesTerm(node: TrajNode, term: Term): boolean {
 }
 
 /** True when a row satisfies every term (an empty query matches everything). */
-export function matchesQuery(node: TrajNode, query: TrajQuery): boolean {
+export function matchesQuery(node: TrajNode, query: TrajQuery, events: readonly unknown[] = []): boolean {
   if (query.empty) return true
-  for (const term of query.terms) if (!matchesTerm(node, term)) return false
+  for (const term of query.terms) if (!matchesTerm(node, term, events)) return false
   return true
 }
 
@@ -177,13 +197,14 @@ export function matchesQuery(node: TrajNode, query: TrajQuery): boolean {
 export function applyQuery(
   nodes: readonly TrajNode[],
   query: TrajQuery,
+  events: readonly unknown[] = [],
 ): { rows: TrajNode[]; indexes: number[] } {
   if (query.empty) return { rows: [...nodes], indexes: nodes.map((_, index) => index) }
   const rows: TrajNode[] = []
   const indexes: number[] = []
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index]!
-    if (matchesQuery(node, query)) {
+    if (matchesQuery(node, query, events)) {
       rows.push(node)
       indexes.push(index)
     }
@@ -194,5 +215,5 @@ export function applyQuery(
 /** Row kinds offered as `kind:` completions, in ledger-usefulness order. */
 export const QUERY_KINDS: readonly TrajKind[] = [
   'tool', 'subtool', 'retry', 'assistant', 'thinking', 'user',
-  'approval', 'system', 'context', 'compaction', 'turn', 'step', 'todo',
+  'approval', 'system', 'context', 'compaction', 'request', 'turn', 'step', 'todo',
 ]

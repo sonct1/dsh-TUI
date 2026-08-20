@@ -85,6 +85,9 @@ export function TrajectoryScene({
   const [sort, setSort] = React.useState<HotspotSort>('duration')
   const [expanded, setExpanded] = React.useState(false)
   const [inspectScroll, setInspectScroll] = React.useState(0)
+  const [inspectTab, setInspectTab] = React.useState(0)
+  /** Selected member of a folded burst; the aggregate row remains in the ledger. */
+  const [burstMember, setBurstMember] = React.useState(0)
   /** Ticks at which one-shot motion verbs were triggered. */
   const [switchTick, setSwitchTick] = React.useState(0)
   const [alertTick, setAlertTick] = React.useState(0)
@@ -92,18 +95,46 @@ export function TrajectoryScene({
   const [arrivalFrom, setArrivalFrom] = React.useState(Number.MAX_SAFE_INTEGER)
   /** Cursor pinned to the tail until the user scrolls away from it. */
   const [follow, setFollow] = React.useState(true)
+  /** Record indexes bounding an in-progress or completed timeline selection. */
+  const [rangeStart, setRangeStart] = React.useState<number | undefined>()
+  const [rangeEnd, setRangeEnd] = React.useState<number | undefined>()
+  /** A completed range can become the wave's zoomed domain. */
+  const [zoomRange, setZoomRange] = React.useState<readonly [number, number] | undefined>()
+  /** Collapsed turn bodies; turn headings remain stable navigation targets. */
+  const [collapsedTurns, setCollapsedTurns] = React.useState<ReadonlySet<number>>(() => new Set())
+  /** Collapsed request/step bodies; step and request anchors remain visible. */
+  const [collapsedSteps, setCollapsedSteps] = React.useState<ReadonlySet<string>>(() => new Set())
 
   // ── projection ───────────────────────────────────────────────────────────
   const nodes = build.nodes
 
   const query = React.useMemo(() => parseQuery(queryText), [queryText])
-  const { rows: filtered, indexes } = React.useMemo(
-    () => applyQuery(nodes, query),
+  const events = channel.traceEvents()
+  const { rows: queried, indexes: queriedIndexes } = React.useMemo(
+    () => applyQuery(nodes, query, events),
     // `nodes` is mutated in place by the incremental fold, so its length is
     // the honest dependency — the array identity never changes.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-    [nodes, nodes.length, query],
+    [nodes, nodes.length, query, events],
   )
+  const range = rangeStart === undefined || rangeEnd === undefined
+    ? undefined
+    : ([Math.min(rangeStart, rangeEnd), Math.max(rangeStart, rangeEnd)] as const)
+  const { filtered, indexes } = React.useMemo(() => {
+    const rows: typeof queried = []
+    const indexes: number[] = []
+    for (let position = 0; position < queried.length; position++) {
+      const node = queried[position]!
+      const index = queriedIndexes[position]!
+      if (range !== undefined && (index < range[0] || index > range[1])) continue
+      if (node.kind !== 'turn' && collapsedTurns.has(node.turn)) continue
+      const stepKey = `${node.turn}:${node.step ?? 0}`
+      if (node.kind !== 'turn' && node.kind !== 'step' && node.kind !== 'request' && collapsedSteps.has(stepKey)) continue
+      rows.push(node)
+      indexes.push(index)
+    }
+    return { filtered: rows, indexes }
+  }, [queried, queriedIndexes, range, collapsedTurns, collapsedSteps])
 
   const agg = React.useMemo(
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -138,29 +169,41 @@ export function TrajectoryScene({
     Math.min(clampedCursor - Math.floor(ledgerRows / 2), filtered.length - ledgerRows),
   )
 
+  const domainNodes = React.useMemo(
+    () => zoomRange === undefined ? nodes : nodes.slice(zoomRange[0], zoomRange[1] + 1),
+    [nodes, nodes.length, zoomRange],
+  )
   const band = React.useMemo(
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-    () => projectWave(nodes, bandWidth, projection),
-    [nodes, nodes.length, bandWidth, projection],
+    () => projectWave(domainNodes, bandWidth, projection),
+    [domainNodes, domainNodes.length, bandWidth, projection],
   )
+  const domainOffset = zoomRange?.[0] ?? 0
+  const waveColumn = React.useCallback((index: number): number => columnOfIndex(band, index - domainOffset), [band, domainOffset])
   const matchColumns = React.useMemo(() => {
     if (query.empty) return undefined
     const set = new Set<number>()
-    for (const index of indexes) set.add(columnOfIndex(band, index))
+    for (const index of indexes) {
+      if (index >= domainOffset && index < domainOffset + domainNodes.length) set.add(waveColumn(index))
+    }
     return set
-  }, [band, indexes, query.empty])
+  }, [domainNodes.length, domainOffset, indexes, query.empty, waveColumn])
 
   const focused = filtered[clampedCursor]
+  const inspected = focused?.burst?.members[Math.min(burstMember, Math.max(0, (focused.burst?.members.length ?? 1) - 1))] ?? focused
   const detail = React.useMemo(
-    () => (focused === undefined ? undefined : inspectNode(focused, channel.traceEvents())),
-    [focused, channel],
+    () => (inspected === undefined ? undefined : inspectNode(inspected, channel.traceEvents())),
+    [inspected, inspected?.endSeq, inspected?.status, inspected?.outcome, channel, channel.version],
   )
+  const memberCount = focused?.burst?.members.length ?? 0
 
   // ── navigation helpers ───────────────────────────────────────────────────
   const move = React.useCallback(
     (delta: number) => {
       setExpanded(false)
       setInspectScroll(0)
+      setInspectTab(0)
+      setBurstMember(0)
       setCursor(previous => {
         const next = Math.max(0, Math.min(filtered.length - 1, previous + delta))
         setFollow(next >= filtered.length - 1)
@@ -180,6 +223,8 @@ export function TrajectoryScene({
         if (predicate(index)) {
           setExpanded(false)
           setInspectScroll(0)
+          setInspectTab(0)
+          setBurstMember(0)
           setCursor(index)
           setFollow(index >= limit - 1)
           return
@@ -206,6 +251,8 @@ export function TrajectoryScene({
       setSwitchTick(tick)
       setExpanded(false)
       setInspectScroll(0)
+      setInspectTab(0)
+      setBurstMember(0)
     },
     [tick],
   )
@@ -289,11 +336,17 @@ export function TrajectoryScene({
     // key) or other modified chords that share the letter.
     if (input === 'g' && !key.ctrl && !key.meta && !key.super) {
       setCursor(0)
+      setInspectTab(0)
+      setInspectScroll(0)
+      setBurstMember(0)
       setFollow(false)
       return
     }
     if (input === 'G' && !key.ctrl && !key.meta && !key.super) {
       setCursor(Math.max(0, filtered.length - 1))
+      setInspectTab(0)
+      setInspectScroll(0)
+      setBurstMember(0)
       setFollow(true)
       return
     }
@@ -306,13 +359,75 @@ export function TrajectoryScene({
       setSwitchTick(tick)
       return
     }
+    if (input === 'v') {
+      const index = indexes[clampedCursor]
+      if (index !== undefined) {
+        if (rangeStart === undefined || rangeEnd !== undefined) {
+          setRangeStart(index)
+          setRangeEnd(undefined)
+        } else {
+          setRangeEnd(index)
+        }
+      }
+      return
+    }
+    if (input === 'x') {
+      setRangeStart(undefined)
+      setRangeEnd(undefined)
+      setZoomRange(undefined)
+      return
+    }
+    if (input === 'z' && range !== undefined) {
+      setZoomRange(previous => previous === undefined ? range : undefined)
+      return
+    }
+    if (input === 'c') {
+      const node = filtered[clampedCursor]
+      if (node !== undefined) {
+        if (node.kind === 'turn' || key.shift) {
+          setCollapsedTurns(previous => {
+            const next = new Set(previous)
+            if (next.has(node.turn)) next.delete(node.turn)
+            else next.add(node.turn)
+            return next
+          })
+        } else {
+          const stepKey = `${node.turn}:${node.step ?? 0}`
+          setCollapsedSteps(previous => {
+            const next = new Set(previous)
+            if (next.has(stepKey)) next.delete(stepKey)
+            else next.add(stepKey)
+            return next
+          })
+        }
+      }
+      return
+    }
+    if (key.tab && detail !== undefined) {
+      setInspectTab(previous => {
+        const delta = key.shift ? -1 : 1
+        const current = Math.min(previous, detail.tabs.length - 1)
+        return (current + delta + detail.tabs.length) % detail.tabs.length
+      })
+      setInspectScroll(0)
+      return
+    }
+    if (memberCount > 0 && (input === 'n' || input === 'p')) {
+      setBurstMember(previous => {
+        const delta = input === 'n' ? 1 : -1
+        return (previous + delta + memberCount) % memberCount
+      })
+      setInspectTab(0)
+      setInspectScroll(0)
+      return
+    }
     if (key.return) {
       setExpanded(previous => !previous)
       setInspectScroll(0)
       return
     }
     if (expanded && (input === 'j' || input === 'k')) {
-      setInspectScroll(previous => Math.max(0, previous + (input === 'j' ? inspectorRows - 2 : -(inspectorRows - 2))))
+      setInspectScroll(previous => Math.max(0, previous + (input === 'j' ? inspectorRows - 3 : -(inspectorRows - 3))))
     }
   })
 
@@ -369,7 +484,12 @@ export function TrajectoryScene({
     queryOpen || !query.empty
       ? `   / ${queryText}${queryOpen ? '\u258c' : ''}  ${t('traj-matches', { n: filtered.length, total: nodes.length })}`
       : ''
-  const tabsLine = spread(tabsLeft + queryText_, axisLabel, bandWidth)
+  const viewState = [
+    range === undefined ? undefined : `range ${range[0] + 1}-${range[1] + 1}`,
+    zoomRange === undefined ? undefined : 'zoom',
+    collapsedTurns.size + collapsedSteps.size > 0 ? `fold ${collapsedTurns.size + collapsedSteps.size}` : undefined,
+  ].filter((value): value is string => value !== undefined).join(' · ')
+  const tabsLine = spread(`${tabsLeft}${queryText_}`, `${axisLabel}${viewState === '' ? '' : ` · ${viewState}`}`, bandWidth)
   const tabs = (
     <Box width="100%" height={1} flexShrink={0}>
       <Text>
@@ -403,9 +523,10 @@ export function TrajectoryScene({
       <WaveBand
         band={band}
         width={bandWidth}
-        cursorColumn={columnOfIndex(band, indexes[clampedCursor] ?? 0)}
-        viewportStart={columnOfIndex(band, indexes[windowStart] ?? 0)}
-        viewportEnd={columnOfIndex(band, indexes[Math.min(filtered.length - 1, windowStart + ledgerRows - 1)] ?? 0)}
+        cursorColumn={waveColumn(indexes[clampedCursor] ?? domainOffset)}
+        viewportStart={waveColumn(indexes[windowStart] ?? domainOffset)}
+        viewportEnd={waveColumn(indexes[Math.min(filtered.length - 1, windowStart + ledgerRows - 1)] ?? domainOffset)}
+        selection={range === undefined ? undefined : [waveColumn(range[0]), waveColumn(range[1])]}
         matches={matchColumns}
         tick={tick}
         alertTick={alertTick}
@@ -429,12 +550,14 @@ export function TrajectoryScene({
               viewport. Size it to the scene's own content width. */}
           <Divider color="permission" width={bandWidth} />
           <Inspector
-            node={focused}
+            node={inspected}
             detail={detail}
             height={inspectorRows}
             width={columns - 4}
             expanded={expanded}
             scroll={inspectScroll}
+            activeTab={inspectTab}
+            member={memberCount > 0 ? { index: Math.min(burstMember, memberCount - 1), count: memberCount } : undefined}
           />
         </>
       ) : (

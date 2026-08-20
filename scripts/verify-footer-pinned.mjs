@@ -3,8 +3,10 @@
  * spinner/activity line, plugin status contributions, new-messages pill)
  * must mount/unmount inside a fixed two-row band above the prompt, and the
  * StatusLine's context-bar row must stay reserved from session start
- * (contextWindow arrives only with the first request/context), so the
- * prompt input and StatusLine stay on the SAME screen rows in every state —
+ * (contextWindow arrives only with the first request/context), and its
+ * supplemental hint/activity/trajectory row must stay reserved while empty,
+ * so the prompt input and StatusLine stay on the SAME screen rows in every
+ * state —
  * in both inline and fullscreen renders. The goal/todo panel rides the
  * transcript (Claude Code semantics), visible at the bottom of the scroll
  * area instead of the footer.
@@ -87,6 +89,7 @@ function makeChannel(listeners) {
     activityEnabled: true,
     activityFrames: [],
     contextBarEnabled: true,
+    statusBar: { contextBar: true, shortcutHint: false },
     // Fresh session: the context window is unknown until the first
     // request/context event — the bar slot must stay reserved so the rows
     // below don't move when the bar content arrives.
@@ -117,7 +120,10 @@ function inputPromptRow(lines) {
   return -1
 }
 function statusFieldsRow(lines) {
-  return lines.findIndex(l => l.includes('deepseek-v4-flash') && l.includes('main'))
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes('deepseek-v4-flash')) return i
+  }
+  return -1
 }
 function activityRow(lines) {
   return lines.findIndex(l => l.includes('extended-status'))
@@ -141,7 +147,12 @@ async function scenario(cols, rows, fullscreen, label) {
   // Fresh session: contextWindow undefined (no bar content yet), then the
   // first request/context arrives and the bar mounts — the input/status rows
   // must not move across that transition either.
-  states.push(['no-bar', snap()])
+  states.push(['idle-no-hint', snap()])
+  channel.statusBar = { ...channel.statusBar, shortcutHint: true }
+  emit()
+  await sleep(200)
+  states.push(['idle-hint', snap()])
+  channel.statusBar = { ...channel.statusBar, shortcutHint: false }
   channel.contextWindow = 1_000_000
   emit()
   await sleep(200)
@@ -177,11 +188,14 @@ async function scenario(cols, rows, fullscreen, label) {
   await sleep(200)
   states.push(['idle-goal', snap()])
 
-  // Geometry must be identical in every state (footer pinned).
-  const anchors = states.map(([, s]) => s.join(','))
+  // Geometry must be identical in every state (footer pinned). Missing
+  // anchors are failures too; otherwise a render regression could return -1
+  // consistently and accidentally satisfy the equality check.
+  const anchorsPresent = states.every(([, [inputRow, statusRow]]) => inputRow >= 0 && statusRow >= 0)
+  const anchors = states.map(([, snapshot]) => snapshot.join(','))
   check(
     `${label}: input/status rows constant across states`,
-    new Set(anchors).size === 1,
+    anchorsPresent && new Set(anchors).size === 1,
     [...new Set(anchors)].join(' vs '),
   )
 

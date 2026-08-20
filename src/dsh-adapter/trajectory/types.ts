@@ -32,6 +32,8 @@ export type TrajKind =
   | 'system'
   | 'context'
   | 'todo'
+  /** A provider request, including requests that never produced a message. */
+  | 'request'
 
 /** Bracket outcome; open brackets stay `running` until their closer lands. */
 export type TrajStatus = 'running' | 'ok' | 'error'
@@ -43,6 +45,24 @@ export interface TrajTokens {
   readonly think: number
   readonly cacheRead: number
   readonly cacheWrite: number
+}
+
+/** Request-scoped lifecycle facts captured without mirroring raw request data. */
+export interface TrajRequest {
+  /** Correlation identifier when the provider emitted one. */
+  readonly id?: string
+  readonly provider?: string
+  readonly model?: string
+  readonly promptSeq?: number
+  readonly configSeq?: number
+  /** Request header seq that supplied call-time tool schemas. */
+  readonly headerSeq?: number
+  /** Request began producing output, when observed. */
+  firstTokenTime?: number
+  /** Request ended, including failures that have no assistant message. */
+  completionTime?: number
+  /** Provider-reported usage, attached exactly once to the request. */
+  usage?: TrajTokens
 }
 
 /**
@@ -118,6 +138,14 @@ export interface TrajNode {
   readonly callId?: string
   /** Code-runner sub-call identity (`tool/code-dispatch*` pairing). */
   readonly subCallId?: string
+  /** Immediate enclosing call, retained for nested subtool hierarchy. */
+  readonly parentCallId?: string
+  /** Top-level model-issued call for a nested subtool. */
+  readonly rootCallId?: string
+  /** Nesting depth when supplied or inferable from a parent call. */
+  readonly depth?: number
+  /** Provider request lifecycle facts associated with this row. */
+  request?: TrajRequest
   /** Failure identity when `status === 'error'` (e.g. `RATE_LIMIT`). */
   errorCode?: string
   /** Attempt count on a `retry` row (one row per retry sequence). */

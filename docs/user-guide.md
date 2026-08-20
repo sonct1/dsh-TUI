@@ -112,7 +112,7 @@ dsh-tui
 
 | 键 | 功能 |
 |---|---|
-| `Shift+Tab` | 循环会话模式（默认 → plan 计划 → full 完全访问） |
+| `Shift+Tab` | 循环当前模型支持的 thinking level / 推理强度 |
 | `Shift+↑` | 消息选择模式（`↑/↓` 移动，`Enter` 展开单条，`Esc` 退出） |
 | `Ctrl+T`（⌘T） | 打开轨迹场景（同 `/trace`） |
 
@@ -336,7 +336,7 @@ dsh-tui
 - `/model`：选择器，**切换 = fork 会话续聊**（历史保留、只换 provider/model 路由，preset 不变）；旧会话留在 `/resume`；选择持久化 `~/.dsh-tui/model.json`。运行时切换被拒绝。
 - `/preset`：`standard`（默认全功能）/ `code`（PTC）/ `minimal`（仅 bash+编辑器，无 compaction）/ `cordis`（创造模式）/ `liangshen`（梁神模式：首轮最小双工具，首次工具调用后开放全目录）。
   **已产生对话的会话不可切换**（blank-only：选择只保存为下次 `/new` 的默认）。
-- 会话模式 `Shift+Tab` 循环三档：default（workspace-write + 审批）→ plan（read-only）→ full（danger-full-access）。
+- `Shift+Tab`：按 adapter 提供的顺序循环当前模型支持的 thinking level / 推理强度；选择会持久化并作用于下一次请求。
 
 ### 4.7 问卷与审批
 

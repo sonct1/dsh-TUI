@@ -295,6 +295,30 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   await sleep(140)
   check('esc clears the query', screen().includes('grep_repo'))
 
+  // Timeline focus controls: v marks endpoints, z zooms, x clears, and c folds
+  // the focused request/step while preserving a stable anchor row.
+  stdin.write('v')
+  await sleep(80)
+  stdin.write('\x1b[A')
+  stdin.write('\x1b[A')
+  await sleep(80)
+  stdin.write('v')
+  await sleep(180)
+  const selectedRange = screen()
+  check('v marks an inclusive timeline range', selectedRange.includes('range '), selectedRange.split('\n')[1]?.trim())
+  stdin.write('z')
+  await sleep(160)
+  check('z zooms the wave to the selected range', screen().includes('zoom'))
+  const beforeFoldRows = screen().split('\n').filter(line => / TOOL | AST | THK | REQ /.test(line)).length
+  stdin.write('c')
+  await sleep(160)
+  const foldedScreen = screen()
+  const afterFoldRows = foldedScreen.split('\n').filter(line => / TOOL | AST | THK | REQ /.test(line)).length
+  check('c folds the focused request/step body', foldedScreen.includes('fold ') && afterFoldRows <= beforeFoldRows, `${beforeFoldRows} → ${afterFoldRows}`)
+  stdin.write('x')
+  await sleep(160)
+  check('x clears range and zoom state', !screen().includes('range ') && !screen().includes('zoom'))
+
   // View switching. The hotspot rows animate in (motion arrive); a fixed
   // sleep races the animation — poll until the view materializes.
   stdin.write('\x1b[C')

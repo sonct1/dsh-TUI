@@ -10,7 +10,7 @@
 | `Tab` | Complete a `/` command or `@` file; while the model is working, queue non-empty input as a post-turn follow-up |
 | `Ctrl+Enter` | Interrupt the running turn and process the input immediately |
 | `Shift+Enter` / `Ctrl+J` | Insert a newline at the caret; `Ctrl+J` (LF) is the fallback when the terminal cannot report the Shift modifier; macOS Terminal.app uses `Option+Enter` |
-| `Shift+Tab` | Cycle the configured session modes (default: default → plan → full-access) |
+| `Shift+Tab` | Cycle the current model's reasoning-effort levels in adapter order |
 | `Alt/Option+Up` | Pull the latest undelivered message back into the editor |
 | `Up/Down` | Select menu items; in ordinary input, browse history or move through multiline text |
 | `Ctrl+V` | Insert clipboard text or files; images are sent as durable attachments |
@@ -177,7 +177,7 @@ answer in a scrollable panel. Notes:
 
 ### Trajectory scene (/trace / Ctrl+T)
 
-A full-screen scene (no scrollback pollution) over the whole session timeline:
+A full-screen scene (no scrollback pollution) over the whole session timeline. The adapter supplies a full resident `traceEvents()` snapshot, so this view has no artificial older-history pager: top means the first resident event, and free-text search covers every inspectable record (including system/context prompts, tools, previous prompts/diffs, assistant and tool output, burst members, and compaction). If a backend later exposes an incomplete prefix, it must expose that boundary explicitly before the UI can label history as incomplete.
 
 | Key | Action |
 | --- | --- |
@@ -187,8 +187,11 @@ A full-screen scene (no scrollback pollution) over the whole session timeline:
 | `{` / `}` | Jump to previous / next turn |
 | `/` | Query line: `tool:` `kind:` `turn:` `err:` `run:` `>10s` `tok>1k` prefixes, ANDed together; hits highlight in place |
 | `m` | Cycle projection modes (equal / wall-clock / collapsed idle) |
+| `v` / `x` | Mark range start/end at the cursor and clear the range; a completed range focuses the ledger inclusively |
+| `z` | Zoom the wave domain to the completed range; press again to restore the full domain |
+| `c` / `Shift+C` | Collapse/expand the focused request/step; Shift+C toggles the whole turn |
 | `g` / `G` | Jump to top / bottom |
-| `Enter` | Expand details; `j`/`k` page inside the details |
+| `Enter` | Expand details; `Tab` switches inspectable content tabs, `n`/`p` switches folded-burst members, and `j`/`k` page inside the details |
 | `t` (hotspot view) | Cycle sorting (time / count / tokens) |
 | `q` / `Esc` | Exit; Esc is layered: fold details → clear query → close |
 

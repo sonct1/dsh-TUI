@@ -1,7 +1,7 @@
 /**
  * Headless full-stack smoke of the new /effort + Shift+Tab features through
  * the real Chat screen (compiled lib): renders Chat with a channel-shaped
- * stub whose listEfforts/setEffort/cycleMode mirror the real seam contracts,
+ * stub whose listEfforts/setEffort/cycleEffort mirror the real seam contracts,
  * drives the real useInput path through fake stdin, and asserts on the
  * rendered screen (xterm-headless rebuilds the visible rows):
  *   1. `/effort` (bare) opens the slider listing the adapter levels with the
@@ -10,9 +10,7 @@
  *      effort segment changes);
  *   3. Esc closes the slider;
  *   4. `/effort off` sets directly (notify);
- *   5. Shift+Tab (\x1b[Z) cycles the session mode; StatusLine shows the mode
- *      label; a plan-declaring mode recolors nothing observable here but the
- *      border token changes — asserted via channel.mode.plan.
+ *   5. Shift+Tab (\x1b[Z) cycles the reasoning effort and updates StatusLine.
  *
  * Run with plain node against the compiled lib:
  *   node scripts/verify-effort-slider-ui.mjs
@@ -62,15 +60,9 @@ const EFFORTS = [
 
 function makeChannel() {
   const setEffortCalls = []
-  const cycled = []
+  const cycledEfforts = []
   const notifications = []
   const rows = []
-  let modeIndex = 0
-  const MODES = [
-    { id: 'default', plan: false, sandbox: 'workspace-write', approval: 'ask' },
-    { id: 'plan', plan: true, sandbox: 'read-only', approval: 'ask' },
-    { id: 'full', plan: false, sandbox: 'danger-full-access', approval: 'never' },
-  ]
   const listeners = new Set()
   const channel = {
     version: 0,
@@ -97,9 +89,7 @@ function makeChannel() {
     workingActivity: undefined,
     activityEnabled: false,
     contextBarEnabled: true,
-    // Status footer fields: the assertions below watch the mode label, so
-    // enable it explicitly (the compact defaults hide it).
-    statusBar: { mode: true },
+    statusBar: { thinking: true },
     agentPreset: 'standard',
     goal: undefined,
     todos: [],
@@ -113,11 +103,14 @@ function makeChannel() {
         .map((command) => ({ ...command, commandLine: `/${command.name}`, replacement: `/${command.name} ` }))
     },
     contextSegments: { system: 0, prompt: 0, assistant: 0, thinking: 0, tools: 0 },
-    get mode() { return MODES[modeIndex] },
-    get modeIndex() { return modeIndex },
-    async cycleMode() {
-      cycled.push(modeIndex)
-      modeIndex = (modeIndex + 1) % MODES.length
+    mode: { id: 'default', plan: false, sandbox: 'workspace-write', approval: 'ask' },
+    modeIndex: 0,
+    async cycleMode() {},
+    async cycleEffort() {
+      const currentIndex = EFFORTS.findIndex(effort => effort.id === channel.reasoningEffort)
+      const next = EFFORTS[(currentIndex + 1) % EFFORTS.length]
+      cycledEfforts.push(next.id)
+      channel.reasoningEffort = next.id
       channel.version += 1
       for (const listener of listeners) listener()
     },
@@ -170,7 +163,7 @@ function makeChannel() {
     newSession: async () => false,
     compact() {},
     setEffortCalls,
-    cycled,
+    cycledEfforts,
   }
   return channel
 }
@@ -232,17 +225,19 @@ stdin.write('\r')
 await sleep(300)
 check('/effort off applied', channel.setEffortCalls.includes('off'), JSON.stringify(channel.setEffortCalls))
 
-// 5. Shift+Tab cycles the mode; StatusLine shows the label.
+// 5. Shift+Tab cycles reasoning effort in adapter order.
 stdin.write('\x1b[Z')
 await sleep(300)
 s = screen()
-check('statusline shows mode label', s.includes('计划模式') || /plan mode/.test(s), s.slice(-300))
+check('backtab advances off → high', channel.reasoningEffort === 'high', channel.reasoningEffort)
+check('statusline shows cycled effort', /high/i.test(s), s.slice(-300))
 stdin.write('\x1b[Z')
 await sleep(300)
-check('second backtab → full', channel.mode.id === 'full', channel.mode.id)
+check('second backtab advances high → max', channel.reasoningEffort === 'max', channel.reasoningEffort)
 stdin.write('\x1b[Z')
 await sleep(300)
-check('third backtab → default (no segment)', channel.modeIndex === 0, String(channel.modeIndex))
+check('third backtab wraps max → off', channel.reasoningEffort === 'off', channel.reasoningEffort)
+check('each backtab used cycleEffort', channel.cycledEfforts.join(',') === 'high,max,off', channel.cycledEfforts.join(','))
 
 // 6. zh locale: the slider chrome hot-swaps to the localized strings
 //    (picker i18n branch: picker-title-effort / hint-adjust-done).

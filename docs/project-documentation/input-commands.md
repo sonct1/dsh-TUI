@@ -152,7 +152,7 @@ filterCommands（prefix 为 '/' 后整段文本，trim+lowercase，按 name.star
 匹配）；overlayOpen 还需 !helpOpen && !selectionActive && !value.includes('\n')。
 命令菜单打开时 Enter 执行选中项（绝不发送 '/mo'）；Tab 补全为 `/<name> `；
 Shift+Tab 在 Tab 分支前处理（解析器把 backtab 报为 key.tab+key.shift），循环
-推理 effort（:491-494，"dsh parity"）。
+当前模型的推理 effort。
 
 ### /rewind（issue #43，pr-55）
 
