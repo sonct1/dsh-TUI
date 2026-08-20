@@ -1,17 +1,17 @@
 {
   "inserts": [
-    "storage",
-    "storage-json",
-    "storage-domain",
-    "workspace",
+    "dsh-tui-storage",
+    "dsh-tui-storage-json",
+    "dsh-tui-storage-domain",
+    "dsh-tui-workspace",
     "dsh-tui-workspaces",
     "dsh-tui-command-trees",
     "dsh-tui-settings-sections",
     "dsh-tui-scenes",
     "dsh-tui-plugin-host",
     "dsh-tui-extensions",
-    "agent-presets",
-    "cordis-host-runner",
+    "dsh-tui-agent-presets",
+    "dsh-tui-cordis-host-runner",
     "dsh-tui",
     "working-activity"
   ],
@@ -27,12 +27,5 @@
   "webAppDisablesBeyondTui": [
     "hmr"
   ],
-  "insertsSharedWithWebApp": [
-    "storage",
-    "storage-json",
-    "storage-domain",
-    "workspace",
-    "agent-presets",
-    "cordis-host-runner"
-  ]
+  "insertsSharedWithWebApp": []
 }

@@ -740,9 +740,22 @@ export default class Ink {
     // and no move is emitted.
     const decl = this.cursorDeclaration;
     const rect = decl !== null ? nodeCache.get(decl.node) : undefined;
+    // Main-screen inline mode stores node rectangles in frame coordinates,
+    // while the physical terminal only exposes the viewport tail once the
+    // frame is taller than the terminal. Convert the declared row to that
+    // visible coordinate system before emitting the relative cursor move.
+    // Without this subtraction a long streaming frame asks the terminal to
+    // move to an off-screen row; terminals clamp it at the bottom, leaving
+    // the virtual and physical cursor origins out of sync for the next diff.
+    // Offset is exactly the rows pushed into scrollback: H - V when the frame
+    // outgrows the viewport, 0 when it fits (H <= V). A +1 here would nudge a
+    // just-fitting frame (H === V) up one row, misplacing the input caret.
+    const visibleFrameOffset = this.altScreenActive
+      ? 0
+      : Math.max(0, frame.screen.height - frame.viewport.height);
     const target = decl !== null && rect !== undefined ? {
       x: rect.x + decl.relativeX,
-      y: rect.y + decl.relativeY
+      y: rect.y + decl.relativeY - visibleFrameOffset
     } : null;
     const parked = this.displayCursor;
     // Diagnostics: the resolved park target per frame (DSH_TUI_DEBUG only).

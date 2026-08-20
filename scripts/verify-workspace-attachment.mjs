@@ -133,7 +133,12 @@ assert.equal(
   'rewind, /resume, /new, and model-switch paths all attach ownership',
 )
 for (const id of ['storage', 'storage-json', 'storage-domain', 'workspace']) {
-  assert.match(patch, new RegExp(`- id: ${id}\\n`), `profile patch mounts ${id}`)
+  assert.match(patch, new RegExp(`- id: dsh-tui-${id}\\n`), `profile patch mounts scoped dsh-tui-${id}`)
+  assert.match(
+    patch,
+    new RegExp(`dsh-tui-${id}[\\s\\S]{0,260}entry\\.options\\.id === '${id}'`),
+    `scoped dsh-tui-${id} yields to the official ${id} row`,
+  )
 }
 assert.match(patch, /root: !!js dshHomePath\('storages'\)/)
 assert.match(

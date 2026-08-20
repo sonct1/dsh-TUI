@@ -41,15 +41,17 @@ function BorderRow({
   idleColor: keyof Theme | Color
 }): React.ReactNode {
   return (
-    <Text>
-      <Text color={idleColor}>{left}</Text>
-      {runs.map((run, i) => (
-        <Text key={i} color={run.color}>
-          {run.glyph}
-        </Text>
-      ))}
-      <Text color={idleColor}>{right}</Text>
-    </Text>
+    <Box width="100%" height={1} flexShrink={0} overflow="hidden">
+      <Text wrap="truncate-end">
+        <Text color={idleColor}>{left}</Text>
+        {runs.map((run, i) => (
+          <Text key={i} color={run.color}>
+            {run.glyph}
+          </Text>
+        ))}
+        <Text color={idleColor}>{right}</Text>
+      </Text>
+    </Box>
   )
 }
 
@@ -124,7 +126,7 @@ export function EffortInputBorder({
       flexShrink={0}
     >
       <BorderRow left="╭" right="╮" runs={runs} idleColor={idleColor} />
-      {children}
+      <Box flexShrink={0}>{children}</Box>
       <BorderRow left="╰" right="╯" runs={runs} idleColor={idleColor} />
     </Box>
   )

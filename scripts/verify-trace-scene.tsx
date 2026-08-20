@@ -28,7 +28,7 @@ process.env.FORCE_COLOR = '3'
 // to agree with.
 process.env.DSH_TUI_LANG = 'zh'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { TrajectoryScene }, { Chat }, { QuestionStore }] =
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { TrajectoryScene }, { Chat }, { QuestionStore }, { stringWidth }] =
   await Promise.all([
     import('node:stream'),
     import('react'),
@@ -37,6 +37,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Traj
     import('../src/screens/TrajectoryScene.js'),
     import('../src/screens/Chat.js'),
     import('../src/dsh-adapter/questions.js'),
+    import('../src/ink/stringWidth.js'),
   ])
 const { miniWakeWidth } = await import('../src/components/trajectory/MiniWake.js')
 const traj = await import('../src/dsh-adapter/trajectory/index.js')
@@ -387,7 +388,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   // Scrollback accounting. Leaving the alternate screen makes the terminal
   // restore the main buffer, and Ink then repaints once because its front
   // frame was blanked — one frame per ROUND TRIP in inline mode, the same cost
-  // the Ctrl+X editor handoff already pays. What must never happen is growth
+  // the Ctrl+G editor handoff already pays. What must never happen is growth
   // that scales with USE: the old inline overlay churned the frame on every
   // keystroke, and that is the family this view exists to escape.
   const perTrip = (rowsOf() - scrollbackBefore) / 20
@@ -704,13 +705,16 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
       // it, a missing row is itself the failure.
       check(`wake strip present at ${cols} cols`, miniWakeWidth(cols) === 0, 'no hint row with a wake')
     } else {
-      const right = hintRow.replace(/\s+$/, '').length
-      // English copy ends at cols-1 (right margin); CJK copy ends ~6 cols
-      // earlier because the double-width hint shifts the Yoga space-between
-      // seam — assert the strip is present near the right edge either way.
+      // Terminal geometry is measured in display cells, not JavaScript code
+      // units: the localized `查看快捷键` hint contains wide CJK glyphs. Using
+      // `.length` under-counts the row by one cell per glyph and made all five
+      // widths fail after the status hint became localized.
+      const right = stringWidth(hintRow.replace(/\s+$/, ''))
+      // paddingX={1} on the status line leaves its last occupied cell at
+      // terminal width - 1.
       check(
         `wake sits at the right margin at ${cols} cols`,
-        right >= cols - 8 && right <= cols,
+        right === cols - 1,
         `ends at ${right}, terminal is ${cols}`,
       )
     }

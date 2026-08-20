@@ -5,14 +5,14 @@
  *
  * Run via `node --import tsx/esm scripts/verify-upstream-contract.ts`.
  */
-const { upstreamDrift, UPSTREAM_VALIDATED_VERSION } = await import('../src/dsh-adapter/contract.js')
+const { upstreamDrift, UPSTREAM_VALIDATED_LABEL } = await import('../src/dsh-adapter/contract.js')
 
 const drift = upstreamDrift()
 if (drift.length > 0) {
-  console.error(`Upstream contract violated (validated: ${UPSTREAM_VALIDATED_VERSION}):`)
+  console.error(`Upstream contract violated (validated: ${UPSTREAM_VALIDATED_LABEL}):`)
   for (const entry of drift) {
     console.error(`  - ${entry.package}: installed=${entry.installed ?? 'missing'}`)
   }
   process.exit(1)
 }
-console.log(`upstream contract OK (validated: ${UPSTREAM_VALIDATED_VERSION})`)
+console.log(`upstream contract OK (validated: ${UPSTREAM_VALIDATED_LABEL})`)

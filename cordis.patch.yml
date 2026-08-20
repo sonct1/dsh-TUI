@@ -41,14 +41,17 @@
 #
 # The model-facing plugin set moves INTO the agent-presets roster: every
 # session composes its tools/prompt sections from one preset directory
-# (standard/code/minimal/cordis) instead of the host rows below. The dsh CLI's
-# profile-boot sees this composition's `agent-presets` row and overlays the
-# shipped `config/agent-presets/` root onto it automatically, so the row here
-# carries no roots; `$DSH_HOME/.agent-presets` (user-authored presets) is
-# appended by the roster itself (`includeUserRoot` default). Mirroring the
-# official dsh-web-app patch: every dsh-base row a preset now owns is
-# disabled here, so a minimal agent does not leak host-layer tools (an agent's
-# registry view resolves agent → preset → global).
+# (standard/code/minimal/cordis) instead of the host rows below. The TUI's
+# roster row uses the scoped `dsh-tui-agent-presets` id and carries the
+# shipped `config/agent-presets/` system root itself (derived from the dsh
+# CLI installation through the launcher-maintained `profiles/node_modules`
+# fallback link), because the official profile-boot root overlay only targets
+# the unscoped `agent-presets` id that surface bundles own. The roster itself
+# appends `$DSH_HOME/.agent-presets` (user-authored presets,
+# `includeUserRoot` default). Mirroring the official dsh-web-app patch: every
+# dsh-base row a preset now owns is disabled here, so a minimal agent does not
+# leak host-layer tools (an agent's registry view resolves agent → preset →
+# global).
 
 - id: agent-instructions
   disabled: true
@@ -162,21 +165,32 @@
     # Workspace grouping is a separate durable ledger, not a cwd-derived
     # projection. Mount the same domain stack and storage root as dsh-web-app
     # so TUI-created sessions can attach to the exact registry Web reads.
-    - id: storage
+    #
+    # The six rows below own host-plane services that the official web-app
+    # bundle may already mount. Loader entry ids are process-global, so these
+    # rows use dsh-tui-* scoped ids and self-disable when an enabled row with
+    # the official id/name is already present in the tree. The disabled check
+    # is evaluated during the same include update that inserts every row, so
+    # it sees the web-app rows regardless of their activation state.
+    - id: dsh-tui-storage
       name: '@deepseek-ai/dsh-storage'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'storage' && entry.options.name === '@deepseek-ai/dsh-storage' && !entry.disabled)"
 
-    - id: storage-json
+    - id: dsh-tui-storage-json
       name: '@deepseek-ai/dsh-storage-json'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'storage-json' && entry.options.name === '@deepseek-ai/dsh-storage-json' && !entry.disabled)"
       config:
         root: !!js dshHomePath('storages')
 
-    - id: storage-domain
+    - id: dsh-tui-storage-domain
       name: '@deepseek-ai/dsh-storage-domain'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'storage-domain' && entry.options.name === '@deepseek-ai/dsh-storage-domain' && !entry.disabled)"
       config:
         backend: json
 
-    - id: workspace
+    - id: dsh-tui-workspace
       name: '@deepseek-ai/dsh-workspace'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'workspace' && entry.options.name === '@deepseek-ai/dsh-workspace' && !entry.disabled)"
 
     # Generic terminal workspace registry. Optional plugins add providers;
     # the TUI itself always supplies LOCAL and has no provider-specific code.
@@ -217,23 +231,35 @@
       name: '@deepseek-harness-tui/dsh-tui/extensions'
 
     # The agent-preset roster (issue #8): `ctx.agentPresets`, the service the
-    # TUI composes every session's model-facing world from. No `roots` here —
-    # the dsh CLI's profile-boot overlays its shipped `config/agent-presets/`
-    # directory (standard/code/minimal/cordis, system trust) onto this row
-    # whenever a composition carries it, and the roster itself appends the
-    # user-authored `$DSH_HOME/.agent-presets` root. A boot that never reached
-    # profile-boot (bare `dsh --config cordis.yml`) leaves the roster empty;
-    # the TUI then keeps its pre-presets behavior (see presets.ts).
-    - id: agent-presets
+    # TUI composes every session's model-facing world from. The scoped row
+    # carries the official CLI's shipped `config/agent-presets/` directory
+    # (standard/code/minimal/cordis, system trust) through the
+    # launcher-maintained profiles/node_modules fallback link; the roster
+    # itself appends `$DSH_HOME/.agent-presets` (user-authored presets,
+    # `includeUserRoot` default). A boot that never reached profile-boot
+    # leaves the system root empty and the roster finds only user presets.
+    - id: dsh-tui-agent-presets
       name: '@deepseek-ai/dsh-agent-presets'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'agent-presets' && entry.options.name === '@deepseek-ai/dsh-agent-presets' && !entry.disabled)"
       config:
         default: standard
+        roots: !!js >-
+          (() => {
+            const base = ctx.baseUrl
+            if (!base) return undefined
+            const root = new URL('../node_modules/@deepseek-ai/dsh/config/agent-presets/', base)
+            let path = decodeURIComponent(root.pathname)
+            if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1)
+            return [{ path, trust: 'system' }]
+          })()
 
     # Host-plane services the `cordis` preset's plugin-experimentation tool
     # waits on (dynamicCordisRunner/cordisInspect); dsh-base carries no such
-    # row — the official web app inserts it the same way.
-    - id: cordis-host-runner
+    # row — the official web app inserts it the same way, so this copy yields
+    # to it when it is already present.
+    - id: dsh-tui-cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
+      disabled: !!js "[...ctx.loader.entries()].some(entry => entry.options.id === 'cordis-host-runner' && entry.options.name === '@deepseek-ai/dsh-cordis-host-runner' && !entry.disabled)"
 
     # The interactive front door. The plugin creates/resumes its agent at
     # runtime, seeds the startup status line, and disposes the whole app tree

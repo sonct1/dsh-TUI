@@ -119,7 +119,7 @@ export function EffortTierBadge({
     column = at + 1
   }
   return (
-    <Text bold color={color}>
+    <Text bold color={color} wrap="truncate-end">
       {spaced}
     </Text>
   )

@@ -101,6 +101,18 @@ const computed: Snapshot = {
   insertsSharedWithWebApp: tui.inserts.filter(r => webAppInsertSet.has(r.id)).map(r => r.id),
 }
 
+// The exact failure mode this verifier exists to prevent: a bundle patch
+// `insert` that reuses a web-app-owned loader entry id. Loader ids are
+// process-global, so two inserted rows with the same id make the whole tree
+// fail before any plugin starts (`duplicate loader entry id: <id>`).
+if (webAppAvailable && computed.insertsSharedWithWebApp.length > 0) {
+  console.error(
+    'patch-surface: TUI inserts must not reuse web-app loader entry ids: ' +
+    `${computed.insertsSharedWithWebApp.join(', ')}. Use dsh-tui-scoped ids and let those rows disable themselves when the web-app row is present.`,
+  )
+  process.exit(1)
+}
+
 const mode = process.argv[2]
 if (mode === '--snapshot') {
   if (!webAppAvailable) {

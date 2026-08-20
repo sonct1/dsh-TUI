@@ -6,23 +6,15 @@ import { Select } from './Select.js'
 import { HintLine } from './design-system/HintLine.js'
 
 /**
- * The `/thinking` dialog, mirroring Claude Code's ThinkingToggle.tsx: a
- * permission-colored Pane with a bold title, the Enabled/Disabled select
- * (with CC's option descriptions), and the Enter/Esc hint line.
- *
- * When `confirmationPending` is set (mid-conversation toggle), the select is
- * replaced by CC's yellow warning block and the hint line becomes
- * Enter confirm / Esc cancel; keyboard handling lives in the caller (Chat).
+ * The `/thinking` display dialog: a permission-colored Pane with a bold
+ * title, the Shown/Hidden select, and the Enter/Esc hint line.
  */
 export function ThinkingToggle({
   currentValue,
   focusIndex,
-  confirmationPending,
 }: {
   currentValue: boolean
   focusIndex: number
-  /** Set while a mid-conversation toggle awaits Enter confirmation. */
-  confirmationPending: boolean | null
 }): React.ReactNode {
   const options = [
     {
@@ -47,26 +39,17 @@ export function ThinkingToggle({
           <Text dimColor>{t('thinking-subtitle')}</Text>
         </Box>
 
-        {confirmationPending !== null ? (
-          <Box flexDirection="column" marginBottom={1} gap={1}>
-            <Text color="warning">
-              {t('thinking-mid-warning')}
-            </Text>
-            <Text color="warning">{t('thinking-proceed')}</Text>
-          </Box>
-        ) : (
-          <Box flexDirection="column" marginBottom={1}>
-            <Select
-              options={options}
-              focusIndex={focusIndex}
-              selectedValue={currentValue ? 'true' : 'false'}
-              visibleOptionCount={2}
-            />
-          </Box>
-        )}
+        <Box flexDirection="column" marginBottom={1}>
+          <Select
+            options={options}
+            focusIndex={focusIndex}
+            selectedValue={currentValue ? 'true' : 'false'}
+            visibleOptionCount={2}
+          />
+        </Box>
       </Box>
       <Text dimColor italic>
-        <HintLine text={confirmationPending !== null ? t('hint-confirm-cancel') : t('hint-confirm-exit')} />
+        <HintLine text={t('hint-confirm-exit')} />
       </Text>
     </Pane>
   )

@@ -99,6 +99,25 @@ ENABLE_MODIFY_OTHER_KEYS(CSI >4;2m)（使 Ctrl+Shift+字母可区分于 Ctrl+字
 isPasted 唯一消费点是 src/components/PromptInput.tsx:389 且要求 input.length>0——空粘贴键无
 下游消费者。
 
+## 外部编辑器（Ctrl+G）
+
+`key.ctrl && input === 'g'`（src/components/PromptInput.tsx:496-522）触发 readline
+edit-and-execute-command 语义的编辑器往返：
+
+- **解析顺序**：`$VISUAL` → `$EDITOR`（readline 惯例，支持 `EDITOR="code --wait"`
+  整行引号拆分，src/utils/externalEditor.ts:94-100）；二者均未设置时返回
+  `unavailable`——**刻意不做 vi 兜底**（把用户丢进不会退出的 vi 比报错更糟），
+  以 'input-editor-unavailable' 通知。
+- **往返语义**：草稿写临时文件 → 终端交接给编辑器（Ink alt-screen handoff）→
+  保存文本有变化则 `setInput` 回填。失败映射为 outcome：edited / unchanged /
+  非零退出 / 启动失败（'input-editor-failed'）。
+- **busy 锁**：`editorBusyRef` 在整个往返期间为 true（:412 处早退拦截），catch/
+  finally 保证 rejected promise 不杀进程、锁必然释放——否则 Ctrl+G 永久锁死。
+- **快捷键保留位**：`ctrl+g` 在插件协商的保留键列表中（src/dsh-adapter/shortcuts.ts:115），
+  含 ctrl+shift+g 超集拒绝；`ctrl+x` 已释放给插件。
+- **回归门禁**：scripts/verify-external-editor.mjs（解析+往返，无 TTY）、
+  scripts/repro-external-editor.tsx（xterm headless TTY 交接冒烟）。
+
 ## 工作态投递与 Esc 语义
 
 | 键 | 工作态行为 | 位置 |
