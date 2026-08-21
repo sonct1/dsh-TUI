@@ -1,4 +1,5 @@
 import React from 'react'
+import chalk from 'chalk'
 import { Box, Text } from '../../ui.js'
 import { t } from '../../i18n.js'
 import { StreamingMarkdown } from '../StreamingMarkdown.js'
@@ -8,6 +9,9 @@ import {
   THINKING_SPINNER_INTERVAL_MS,
   THINKING_SETTLED_MARKER,
 } from '../../cc/figures.js'
+import { BRAND, ICE } from '../shimmer.js'
+import { interpolateColor } from '../Spinner/spinnerUtils.js'
+import { isMinimalMode } from '../../minimalMode.js'
 
 /** Preview body rows — a FIXED row count (kimicode-style constant-height
  *  ticker). Ink's truncate slices the whole string across newlines as one
@@ -68,14 +72,29 @@ export function AssistantThinkingMessage({
     return () => clearInterval(interval)
   }, [streaming])
 
-  const marker = streaming
-    ? THINKING_SPINNER_FRAMES[frame % THINKING_SPINNER_FRAMES.length]!
-    : THINKING_SETTLED_MARKER
-
   const duration =
     durationMs !== undefined && durationMs >= 1000
       ? ` · ${formatDuration(durationMs)}`
       : ''
+
+  // Kimi Code style blue pulse: the streaming glyph breathes along the
+  // header's brand→ice ladder, one sine period per ~7 frames (≈0.56s) —
+  // lively without strobing. Minimal mode drops the color (plain glyph);
+  // settled always keeps the plain dim anchor.
+  const label = `${t('thinking-label')}${duration}${streaming ? '…' : ` ${t('hint-expand-ctrl-o')}`}`
+  const minimal = isMinimalMode()
+  const pulse = (Math.sin(frame * 0.9) + 1) / 2
+  const pulseColor = interpolateColor(BRAND, ICE, pulse)
+  const frameText = THINKING_SPINNER_FRAMES[frame % THINKING_SPINNER_FRAMES.length]!
+  const header =
+    streaming ? (
+      <Box flexDirection="row">
+        <Text>{minimal ? frameText : chalk.rgb(pulseColor.r, pulseColor.g, pulseColor.b).bold(frameText)}</Text>
+        <Text dimColor italic>{` ${label}`}</Text>
+      </Box>
+    ) : (
+      <Text dimColor italic>{`${minimal ? '*' : THINKING_SETTLED_MARKER} ${label}`}</Text>
+    )
 
   if (preview) {
     // Live ticker: the model's last few reasoning lines, dimmed, one Text
@@ -101,9 +120,7 @@ export function AssistantThinkingMessage({
         backgroundColor={isSelected ? 'messageActionsBackground' : undefined}
         onClick={onClick}
       >
-        <Text dimColor italic>
-          {marker} {t('thinking-label')}{duration}…
-        </Text>
+        {header}
         <Box
           flexDirection="column"
           paddingLeft={2}
@@ -112,14 +129,21 @@ export function AssistantThinkingMessage({
           overflow="hidden"
         >
           {rows.map((line, i) => (
-            <Text
-              key={i}
-              dimColor
-              italic
-              wrap={i === rows.length - 1 ? 'truncate-start' : 'truncate'}
-            >
-              {i === 0 && clipped ? `…${line}` : line}
-            </Text>
+            <Box key={i} flexDirection="row" height={1}>
+              {/* The bar is a fixed-width column OUTSIDE the truncating text:
+                * ink's truncate-start rewrites the text's leading columns, so
+                * a bar inside the text would be eaten by the ellipsis. */}
+              <Text dimColor italic>{'│ '}</Text>
+              <Box flexDirection="row" flexGrow={1}>
+                <Text
+                  dimColor
+                  italic
+                  wrap={i === rows.length - 1 ? 'truncate-start' : 'truncate'}
+                >
+                  {i === 0 && clipped ? `…${line}` : line}
+                </Text>
+              </Box>
+            </Box>
           ))}
         </Box>
       </Box>
@@ -133,9 +157,7 @@ export function AssistantThinkingMessage({
         backgroundColor={isSelected ? 'messageActionsBackground' : undefined}
         onClick={onClick}
       >
-        <Text dimColor italic>
-          {marker} {t('thinking-label')}{duration} {t('hint-expand-ctrl-o')}
-        </Text>
+        {header}
       </Box>
     )
   }
@@ -149,9 +171,7 @@ export function AssistantThinkingMessage({
       backgroundColor={isSelected ? 'messageActionsBackground' : undefined}
       onClick={onClick}
     >
-      <Text dimColor italic>
-        {marker} {t('thinking-label')}{duration}…
-      </Text>
+      {header}
       <Box paddingLeft={2}>
         {/* StreamingMarkdown: the live thinking text grows per token — the
           incremental stable-prefix + tail budget keeps the per-frame layout

@@ -115,6 +115,15 @@ export type Theme = {
   rainbow_blue_shimmer: string
   rainbow_indigo_shimmer: string
   rainbow_violet_shimmer: string
+  // Subagent message colors
+  subagentBullet: string
+  subagentDescription: string
+  subagentModel: string
+  subagentElapsed: string
+  subagentToolName: string
+  subagentStatusRunning: string
+  subagentStatusCompleted: string
+  subagentStatusFailed: string
 }
 
 /** The built-in theme names, in display order. */
@@ -210,16 +219,16 @@ const darkTheme: Theme = {
   toolDotWrite: rgb('#B3A0D4'), // soft violet — edit/write
   toolDotWeb: rgb('#7DA1DE'), // mist blue — web search/fetch
   toolDotTask: rgb('#D194AE'), // mist rose — subagent/jobs
-  syntaxKeyword: rgb('#82AAFF'), // vivid blue (theme anchor)
-  syntaxString: rgb('#E5C07B'), // gold - echoes the user-message gold accent
-  syntaxComment: rgb('#6B7280'), // neutral grey
-  syntaxNumber: rgb('#D19A66'), // warm orange
-  syntaxFunction: rgb('#56B6C2'), // vivid cyan
-  syntaxType: rgb('#C678DD'), // vivid violet
+  syntaxKeyword: rgb('#78A0D6'), // muted anchor blue
+  syntaxString: rgb('#79AD91'), // mist green, distinct without neon saturation
+  syntaxComment: rgb('#74808D'), // neutral blue-grey
+  syntaxNumber: rgb('#C89B70'), // softened warm amber
+  syntaxFunction: rgb('#6FAEB5'), // muted cyan
+  syntaxType: rgb('#A98FBF'), // softened violet
   syntaxVariable: rgb('#C9D1D9'), // near-text
   syntaxOperator: rgb('#93A1B0'), // blue grey
   syntaxPunctuation: rgb('#7A8694'), // dim blue grey
-  syntaxConstant: rgb('#E48A9B'), // soft rose
+  syntaxConstant: rgb('#C98291'), // softened rose
   red_FOR_SUBAGENTS_ONLY: rgb('#D4685E'),
   blue_FOR_SUBAGENTS_ONLY: rgb('#7496D6'),
   green_FOR_SUBAGENTS_ONLY: rgb('#66B285'),
@@ -258,6 +267,14 @@ const darkTheme: Theme = {
   rainbow_blue_shimmer: rgb('#AFBFE2'),
   rainbow_indigo_shimmer: rgb('#BFB4DE'),
   rainbow_violet_shimmer: rgb('#D1B4D1'),
+  subagentBullet: rgb('#D194AE'),
+  subagentDescription: rgb('#E8E6E0'),
+  subagentModel: rgb('#8D95A6'),
+  subagentElapsed: rgb('#8D95A6'),
+  subagentToolName: rgb('#7DA1DE'),
+  subagentStatusRunning: rgb('#7DA1DE'),
+  subagentStatusCompleted: rgb('#82B89D'),
+  subagentStatusFailed: rgb('#DA8A93'),
 }
 
 /**
@@ -307,16 +324,16 @@ const lightTheme: Theme = {
   toolDotWrite: rgb('#7A5CA8'),
   toolDotWeb: rgb('#4A63A8'),
   toolDotTask: rgb('#B04A5A'),
-  syntaxKeyword: rgb('#2557C7'),
-  syntaxString: rgb('#8A6A00'),
-  syntaxComment: rgb('#8A8F98'),
-  syntaxNumber: rgb('#B25E1E'),
-  syntaxFunction: rgb('#0F7A8A'),
-  syntaxType: rgb('#8A3FC7'),
+  syntaxKeyword: rgb('#3F68B5'), // clear primary blue without neon saturation
+  syntaxString: rgb('#3F805F'), // readable muted green
+  syntaxComment: rgb('#7D858F'), // neutral blue-grey
+  syntaxNumber: rgb('#A7652B'), // warm amber accent
+  syntaxFunction: rgb('#2E7E8A'), // muted cyan
+  syntaxType: rgb('#7E55A4'), // softened violet
   syntaxVariable: rgb('#343945'),
   syntaxOperator: rgb('#5B6672'),
   syntaxPunctuation: rgb('#9AA0A8'),
-  syntaxConstant: rgb('#C2186B'),
+  syntaxConstant: rgb('#A84472'), // muted rose accent
   red_FOR_SUBAGENTS_ONLY: rgb('#BE5A52'),
   blue_FOR_SUBAGENTS_ONLY: rgb('#3F6CC4'),
   green_FOR_SUBAGENTS_ONLY: rgb('#4E9675'),
@@ -355,6 +372,14 @@ const lightTheme: Theme = {
   rainbow_blue_shimmer: rgb('#A9BCE0'),
   rainbow_indigo_shimmer: rgb('#B7AFD8'),
   rainbow_violet_shimmer: rgb('#CFB0CC'),
+  subagentBullet: rgb('#C07A93'),
+  subagentDescription: rgb('#343945'),
+  subagentModel: rgb('#8991A0'),
+  subagentElapsed: rgb('#8991A0'),
+  subagentToolName: rgb('#3F6CC4'),
+  subagentStatusRunning: rgb('#3F6CC4'),
+  subagentStatusCompleted: rgb('#4E9675'),
+  subagentStatusFailed: rgb('#C65D6B'),
 }
 
 /**
@@ -454,6 +479,14 @@ const darkAnsiTheme: Theme = {
   rainbow_blue_shimmer: 'ansi:cyanBright',
   rainbow_indigo_shimmer: 'ansi:blueBright',
   rainbow_violet_shimmer: 'ansi:magentaBright',
+  subagentBullet: 'ansi:magentaBright',
+  subagentDescription: 'ansi:whiteBright',
+  subagentModel: 'ansi:white',
+  subagentElapsed: 'ansi:white',
+  subagentToolName: 'ansi:cyanBright',
+  subagentStatusRunning: 'ansi:blueBright',
+  subagentStatusCompleted: 'ansi:greenBright',
+  subagentStatusFailed: 'ansi:redBright',
 }
 
 /**

@@ -52,7 +52,10 @@ import { HistorySearchDialog } from '../components/HistorySearchDialog.js'
 import { RewindPicker } from '../components/RewindPicker.js'
 import { BtwPanel } from '../components/BtwPanel.js'
 import { TipsPanel } from '../components/TipsPanel.js'
+import { SubagentDashboard } from '../components/SubagentDashboard.js'
+import { SubagentDetailScene } from '../components/SubagentDetailScene.js'
 import { setClipboard } from '../ink/termio/osc.js'
+import { TerminalWriteContext } from '../ink/useTerminalNotification.js'
 import instances from '../ink/instances.js'
 import { useAnimationFrame } from '../ink/hooks/use-animation-frame.js'
 import { TrajectoryScene } from './TrajectoryScene.js'
@@ -202,6 +205,7 @@ export function Chat({
    */
   trajectorySeen?: boolean
 }) {
+  const writeRaw = React.useContext(TerminalWriteContext)
   // Re-render whenever the channel mutates; rows/status are read fresh below.
   React.useSyncExternalStore(channel.subscribe, () => channel.version)
   // Re-render on language switches so the whole UI hot-swaps its strings.
@@ -348,6 +352,15 @@ export function Chat({
   }
   /** /tips usage-tips overlay: pure UI state, no session side effects. */
   const [tipsOpen, setTipsOpen] = React.useState(false)
+  /** Subagent dashboard (Ctrl+A): displays active/completed subagents. */
+  const [subagentDashboardOpen, setSubagentDashboardOpen] = React.useState(false)
+  /** Detail view for a specific subagent (opened from dashboard). */
+  const [subagentDetailId, setSubagentDetailId] = React.useState<string | null>(null)
+  /**
+   * Hidden `/deepseek` easter egg: each invocation bumps this key so the
+   * logo header remounts and replays the whale spout + text shimmer.
+   */
+  const [logoNonce, setLogoNonce] = React.useState(0)
   React.useEffect(() => () => btwAbortRef.current?.abort(), [])
   /**
    * The trajectory scene (issue #80 evolution). Unlike every other overlay
@@ -1168,6 +1181,18 @@ export function Chat({
         })
         return true
       }
+      case 'deepseek': {
+        // Hidden easter egg: replay the logo header's whale spout + text
+        // shimmer. The command is intentionally not in the suggestion/help
+        // catalogs; PromptInput recognizes it through HIDDEN_COMMAND_NAMES.
+        setHelpOpen(false)
+        setLogoNonce(n => n + 1)
+        // Bring the logo back into view if the transcript has scrolled.
+        setTimeout(() => {
+          handle?.scrollTo(0)
+        }, 0)
+        return true
+      }
       case 'tips':
         setHelpOpen(false)
         setTipsOpen(true)
@@ -1457,6 +1482,8 @@ export function Chat({
     // Same for the settings screen: plain letters (s save / d discard) and
     // the field draft editor belong to it alone.
     if (settingsOpen) return
+    // Subagent dashboard or detail scene: it owns the keyboard while open.
+    if (subagentDashboardOpen || subagentDetailId !== null) return
     // A plugin scene (dsh-tui-scenes) or the trajectory scene owns the whole
     // screen while open: every key belongs to it. Unguarded, an Esc meant to
     // CLOSE the scene also reached the chat:cancel branch below whenever a
@@ -1465,13 +1492,21 @@ export function Chat({
     // Mouse wheel scrolls the transcript even while a question/approval/
     // dialog panel is open — those panels own arrow/Enter/Esc keys, but the
     // transcript above them should still be scrollable in fullscreen mode.
+    // Help is different: its own ScrollBox owns wheel input, so Chat must
+    // yield before stopping propagation or both covered layers would move.
     // Events only arrive with mouse tracking on; inline mode never sees
     // them, so this is a no-op there.
     if (key.wheelUp || key.wheelDown) {
+      if (helpOpen) return
       handle?.scrollBy(key.wheelUp ? -3 : 3)
       event.stopImmediatePropagation()
       return
     }
+    // Help is modal over Chat. Chat's listener registers before PromptInput's,
+    // so yield every remaining key before any global/custom shortcut, search,
+    // selection, or working-turn cancellation branch can mutate hidden state.
+    // PromptInput then owns Esc, navigation, Tab guards, and ordinary typing.
+    if (helpOpen) return
     // The questionnaire / approval panel / managed plugin dialog owns the
     // keyboard while one is pending (the panel's own useInput handles
     // ↑/↓/Space/Tab/Enter/Esc; the prompt input is unmounted, so nothing
@@ -1868,6 +1903,11 @@ export function Chat({
       openScene()
       return
     }
+    if (isMod(key) && input === 'a') {
+      // Ctrl+A opens the subagent dashboard.
+      setSubagentDashboardOpen(true)
+      return
+    }
     if (isMod(key) && input === 'p' && loadedContextVisible) {
       // Ctrl+P toggles the startup loaded-context panel while it is on
       // screen (transcript still empty); once rows take over and the
@@ -1883,7 +1923,7 @@ export function Chat({
       setHistoryOpen(true)
       return
     }
-    if (key.shift && key.upArrow && !selectionActive) {
+    if (key.shift && key.upArrow && !selectionActive && !helpOpen) {
       enterSelection()
     } else if (selectionActive) {
       if (key.upArrow) {
@@ -1896,7 +1936,7 @@ export function Chat({
         setSelectionActive(false)
         setSelectedId(null)
       }
-    } else if (key.escape && channel.working) {
+    } else if (key.escape && channel.working && !helpOpen) {
       // CC's chat:cancel — esc interrupts a running turn (the prompt input
       // only sees esc when idle, where it has the double-tap-clear meaning).
       // With messages queued for delivery, interrupt-and-deliver them right
@@ -1910,8 +1950,11 @@ export function Chat({
         channel.cancel()
       }
       event.stopImmediatePropagation()
-    } else if (isMod(key) && input === 'o') {
+    } else if (isMod(key) && input === 'o' && !helpOpen) {
       // Leaving transcript mode (Ctrl+O) — search was already handled above.
+      // Help is modal: toggling this state behind the overlay is invisible,
+      // then the next `/` unexpectedly opens transcript search instead of
+      // slash-command completion after Help closes.
       setExpanded(previous => !previous)
       // The toggle rewrites every thinking row's layout at once. The
       // ordinary scroll-based diff pushes rows into terminal scrollback on
@@ -1923,7 +1966,7 @@ export function Chat({
       // isn't process.stdout (test harnesses).
       const ink = instances.get(process.stdout) ?? instances.values().next().value
       ink?.reanchorViewport()
-    } else if (input === '/' && !key.ctrl && !key.meta && !key.super) {
+    } else if (input === '/' && !key.ctrl && !key.meta && !key.super && !helpOpen) {
       // `/` in transcript mode (Ctrl+O expanded, CC's REPL semantics:
       // search is active on the transcript screen where `/` isn't a command).
       if (expanded) {
@@ -2032,6 +2075,45 @@ export function Chat({
     return fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>
   }
 
+  // Subagent detail scene: displays detailed view of a specific subagent.
+  // Like the browser and settings, it replaces the conversation entirely.
+  if (subagentDetailId !== null) {
+    const subagent = channel.subagents.find(s => s.agentId === subagentDetailId)
+    if (!subagent) {
+      // Agent not found, go back to dashboard
+      setSubagentDetailId(null)
+      setSubagentDashboardOpen(true)
+      return null
+    }
+    const scene = (
+      <SubagentDetailScene
+        subagent={subagent}
+        onInterrupt={(id) => channel.subagentControl.interrupt(id)}
+        onBack={() => {
+          setSubagentDetailId(null)
+          setSubagentDashboardOpen(true)
+        }}
+      />
+    )
+    return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
+  }
+
+  // Subagent dashboard: displays all active and completed subagents.
+  // Like the browser and settings, it replaces the conversation entirely.
+  if (subagentDashboardOpen) {
+    const dashboard = (
+      <SubagentDashboard
+        subagents={[...channel.subagents]}
+        onSelect={(id) => {
+          setSubagentDashboardOpen(false)
+          setSubagentDetailId(id)
+        }}
+        onClose={() => setSubagentDashboardOpen(false)}
+      />
+    )
+    return fullscreen ? dashboard : <AlternateScreen>{dashboard}</AlternateScreen>
+  }
+
   /** Prompt input is inert while a modal dialog owns the keyboard. */
   const promptSelectionActive =
     selectionActive || modelPickerOpen || skillsPickerOpen || workspacePickerOpen || workspaceFlow !== null || activityPickerOpen ||
@@ -2078,9 +2160,11 @@ export function Chat({
       )}
       <ScrollBox ref={setHandle} flexDirection="column" flexGrow={1} flexShrink={1} stickyScroll>
         <LogoHeader
+          key={logoNonce}
           model={channel.model}
           effort={channel.reasoningEffort}
           cwd={channel.displayCwd}
+          whale={channel.whale}
         />
         {/* The startup loaded-context panel: before the first message the
             transcript is empty, so the inventory of what this conversation
@@ -2106,6 +2190,7 @@ export function Chat({
           diffLayout={channel.diffLayout}
           thinkingFold={channel.thinkingFold}
           toolBackground={channel.toolBackground}
+          activityFrames={channel.activityFrames}
           showAll={showAllMessages}
           thinkingVisible={thinkingVisible}
           onToggleAll={() =>{  setShowAllMessages(previous => !previous) }}
@@ -2142,6 +2227,7 @@ export function Chat({
           ) : (
             channel.working &&
             (channel.activityEnabled &&
+            !channel.minimal &&
             channel.workingActivity !== undefined &&
             channel.workingActivity.line !== '' &&
             channel.workingActivity.phase !== 'idle' ? (
@@ -2212,7 +2298,7 @@ export function Chat({
               streaming={!btw.done}
               onClose={closeBtw}
               onCopy={() => {
-                void setClipboard(btw.answer ?? '').then(raw => { if (raw) process.stdout.write(raw) })
+                void setClipboard(btw.answer ?? '').then(raw => { if (raw) writeRaw?.(raw) })
                 channel.notify(t('copied-chars', { n: (btw.answer ?? '').length }), { timeoutMs: 1500 })
               }}
             />

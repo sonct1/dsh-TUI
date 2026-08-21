@@ -155,10 +155,13 @@ pnpm build
 
 This removes the complete `lib/` directory, runs `tsc -p tsconfig.json` to emit
 `src/` into `lib/types/`, and then checks the adapter boundary, upstream
-contract, and patch surface. The `prepare` lifecycle performs only the clean
-compilation so npm Git URL installs produce a runnable package without
-checked-in output. Local and CI workflows use explicit commands instead of
-depending on whether pnpm implicitly runs the root lifecycle.
+contract, and patch surface. The `prepare` lifecycle serves **source-checkout
+bootstrapping only** (it fails fast when the vendored submodules are absent —
+see scripts/prepare-guard.mjs); Git URL dependency installs have been triply
+blocked since vendoring (#308: workspace deps / submodules / pnpm ≥11's
+prepare allowlist) and are unsupported — install the registry package. Local
+and CI workflows use explicit commands instead of depending on whether pnpm
+implicitly runs the root lifecycle.
 
 Rules for generated output:
 

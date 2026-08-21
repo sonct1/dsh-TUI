@@ -29,6 +29,7 @@ import { checkForTuiUpdate, installedTuiVersion, isBootDeadlockTarget, isVersion
 import { getLang, isLang, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
 import { DEFAULT_STATUS_BAR, normalizeStatusBar, normalizeToolBackground, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
 import { detectLegacyEnv, migrateLegacyDataDir, RENAMED_ENV } from '../utils/paths.js'
+import { attachHerdrIntegration } from '../herdr.js'
 import { Chat } from '../screens/Chat.js'
 import { getHostDialogStore, type TuiDialogRuntime } from './dialogs.js'
 import { getHostStatusStore, type TuiStatusRuntime } from './status.js'
@@ -401,6 +402,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
           shortcutHint: Schema.boolean().default(DEFAULT_STATUS_BAR.shortcutHint),
         }).default({ ...DEFAULT_STATUS_BAR }),
+        // Header pixel whale art; on unless settings.yaml says otherwise.
+        whale: Schema.boolean().default(true),
+        // Minimal mode: strips the header splash, emoji glyphs, and
+        // decorative colors; code highlight and tool colors stay.
+        minimal: Schema.boolean().default(false),
         // No default on purpose: an unset `lang` keeps the field showing
         // the effective language (see the section's format below) and lets
         // cordis.yml / lang.json keep their precedence.
@@ -410,12 +416,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     type SettingsValue = {
       diffLayout?: 'auto' | 'split' | 'unified'
       lang?: 'zh' | 'en'
+      whale?: boolean
+      minimal?: boolean
       thinkingFold?: 'preview' | 'full'
       toolBackground?: ToolBackground
       statusBar?: Partial<StatusBarConfig>
     }
     const applyLayout = (value: SettingsValue): void => {
       channel.setDiffLayout(value.diffLayout ?? config.diffLayout ?? 'auto')
+    }
+    const applyWhale = (value: { whale?: boolean }): void => {
+      channel.setWhale(value.whale ?? true)
+    }
+    const applyMinimal = (value: { minimal?: boolean }): void => {
+      channel.setMinimal(value.minimal ?? false)
     }
     // The /settings language field writes `lang` through the settings
     // service (user layer): apply it live and mirror it to lang.json so
@@ -437,6 +451,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
     const apply = (next: SettingsValue): void => {
       applyLayout(next)
+      applyWhale(next)
+      applyMinimal(next)
       applyLang(next)
       applyDisplay(next)
     }
@@ -649,6 +665,22 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           group: 'status-bar',
           kind: 'boolean',
         },
+        {
+          path: ['whale'],
+          label: 'Whale art',
+          descriptions: { zh: '鲸鱼娘' },
+          hint: 'Show the pixel whale in the header splash.',
+          hintDescriptions: { zh: '开屏头部显示像素鲸鱼娘。' },
+          kind: 'boolean',
+        },
+        {
+          path: ['minimal'],
+          label: 'Minimal mode',
+          descriptions: { zh: '极简模式' },
+          hint: 'Hide the header splash, emoji glyphs, and decorative colors; code highlight and tool colors stay. Trims the status bar to model + cwd.',
+          hintDescriptions: { zh: '隐藏开屏头部、emoji 状态符与装饰性配色；代码高亮与工具配色保留，底栏只留模型与目录。' },
+          kind: 'boolean',
+        },
       ],
     })
     ctx.effect(() => unregister)
@@ -666,6 +698,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.on('approval/request', (req, next) =>
       String(req.agent.id) === channel.agentId ? approvalStore.park(req) : next())
     ctx.effect(() => () => approvalStore.settleAll('cancelled'))
+  }
+  const herdr = attachHerdrIntegration({
+    channel,
+    questions: questionStore,
+    approvals: approvalStore,
+  })
+  if (herdr !== undefined) {
+    ctx.effect(() => () => herdr.dispose())
   }
   // Positional command-line arguments are the initial prompt (issue #53):
   // `dsh-tui "run the tests"` forwards positionals through the dsh CLI,

@@ -1,10 +1,12 @@
 import React from 'react'
+import { extname } from 'node:path'
 import { Box, Text, useTerminalSize } from '../../ui.js'
 import { stringWidth } from '../../ink/stringWidth.js'
 import { useAnimationFrame } from '../../ink/hooks/use-animation-frame.js'
 import type { ToolCallView, ToolFileDiff, ToolResultView, ToolRow } from '../../dsh-adapter/channel.js'
 import { ToolUseLoader } from '../ToolUseLoader.js'
 import { SplitDiffView } from '../SplitDiffView.js'
+import { SyntaxText } from '../SyntaxText.js'
 import { formatDuration } from '../../cc/format.js'
 import type { ToolBackground } from '../../tuiDisplayPrefs.js'
 import type { Theme } from '../../theme.js'
@@ -56,6 +58,29 @@ function displayName(name: string): string {
   return name[0]!.toUpperCase() + name.slice(1)
 }
 
+function parseJsonArgs(args: string): unknown {
+  try { return JSON.parse(args) } catch { return undefined }
+}
+
+function jsonArgsLanguage(args: string): 'json' | undefined {
+  return parseJsonArgs(args) === undefined ? undefined : 'json'
+}
+
+function filePathFromTool(tool: ToolRow, view: ToolCallView | ToolResultView | undefined): string | undefined {
+  if (view !== undefined && 'path' in view && typeof view.path === 'string') return view.path
+  const parsed = parseJsonArgs(tool.argsFull ?? tool.argsText)
+  if (parsed !== null && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>
+    for (const key of ['file_path', 'path']) if (typeof record[key] === 'string') return record[key]
+  }
+  return undefined
+}
+
+function languageFromPath(path: string | undefined): string | undefined {
+  const language = path === undefined ? undefined : extname(path).slice(1).toLowerCase()
+  return language === '' ? undefined : language
+}
+
 // --- structured body lines --------------------------------------------------
 // The tool's presentation view (dsh-tools presentCall/presentResult, captured
 // by the channel) becomes per-line render intents here. CC convention: the
@@ -85,10 +110,11 @@ const plain = (text: string): BodyLine => ({ text, tone: 'plain' })
 
 /** Tool-name color by category (mist-blue accents): read/search tools keep
  *  the brand blue, file-mutating tools get the warm gold accent, exec /
- *  terminal tools get mist cyan. */
+ *  terminal tools get mist cyan. Exported for the subagent card, which
+ *  mirrors the transcript tool-card name styling. */
 const TOOL_NAME_MUTATE = new Set(['edit', 'write', 'multiedit', 'notebookedit'])
 const TOOL_NAME_EXEC = new Set(['bash', 'bashpersistent', 'sh', 'shell', 'terminal'])
-function toolNameColor(raw: string): keyof Theme {
+export function toolNameColor(raw: string): keyof Theme {
   const n = raw.toLowerCase()
   if (TOOL_NAME_MUTATE.has(n)) return 'toolNameMutate'
   if (TOOL_NAME_EXEC.has(n)) return 'toolNameExec'
@@ -204,11 +230,12 @@ function clipHeaderArgs(args: string): string {
   return `${args.slice(0, HEADER_ARGS_BUDGET)}…`
 }
 
-function HeaderTitle({ name, title, isTerminal, displayArgs, nameColor }: {
+function HeaderTitle({ name, title, isTerminal, displayArgs, argsLanguage, nameColor }: {
   name: string
   title: string | undefined
   isTerminal: boolean
   displayArgs: string
+  argsLanguage?: 'json'
   nameColor: keyof Theme
 }): React.ReactNode {
   if (title === undefined) {
@@ -219,7 +246,9 @@ function HeaderTitle({ name, title, isTerminal, displayArgs, nameColor }: {
         </Box>
         {displayArgs !== '' && (
           <Box flexWrap="nowrap">
-            <Text>({clipHeaderArgs(displayArgs)})</Text>
+            <Text>(</Text>
+            <SyntaxText text={clipHeaderArgs(displayArgs)} sourceText={displayArgs} language={argsLanguage} />
+            <Text>)</Text>
           </Box>
         )}
       </>
@@ -283,6 +312,10 @@ export function AssistantToolUseMessage({
   // The settled view carries the applied diff / actual output; while running,
   // the call view already shows the pending change (CC's pending Edit diff).
   const view = tool.resultView ?? tool.callView
+  const filePath = filePathFromTool(tool, view)
+  const syntaxLanguage = view?.card === 'read' || view?.card === 'generic' || view === undefined
+    ? languageFromPath(filePath)
+    : undefined
   // presentResult may omit a title (terminal results carry output, not a
   // command) — then the call view's title stands.
   const headerTitle = tool.resultView?.title ?? tool.callView?.title
@@ -319,6 +352,8 @@ export function AssistantToolUseMessage({
     }
   }
   const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : TEXT_BODY_MAX_LINES
+  const bodySource = body.map(line => line.text).join('\n')
+  const argsLanguage = jsonArgsLanguage(displayArgs)
   // The footnote rides OUTSIDE the cap: it is a pointer, not content, and a
   // long error body must not be the reason it disappears.
   const lines = capLines(body, cap, verbose)
@@ -352,7 +387,7 @@ export function AssistantToolUseMessage({
             isError={isError}
             toolName={tool.name}
           />
-          <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} displayArgs={displayArgs} nameColor={toolNameColor(tool.name)} />
+          <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} displayArgs={displayArgs} argsLanguage={argsLanguage} nameColor={toolNameColor(tool.name)} />
           {!isRunning && (
             <Box flexWrap="nowrap">
               <Text dimColor>{elapsedText}</Text>
@@ -409,7 +444,11 @@ export function AssistantToolUseMessage({
                   dimColor={line.tone === 'dim'}
                   wrap="wrap"
                 >
-                  {line.text === '' ? ' ' : line.text}
+                  {line.tone === 'plain' && syntaxLanguage !== undefined ? (
+                    <SyntaxText text={line.text} sourceText={bodySource} lineIndex={index} language={syntaxLanguage} />
+                  ) : (
+                    line.text === '' ? ' ' : line.text
+                  )}
                 </Text>
               </Box>
             </Box>

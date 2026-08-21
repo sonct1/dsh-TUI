@@ -93,10 +93,16 @@ export function ListItem({
 
   return (
     <Box ref={cursorRef} flexDirection="column">
-      <Box flexDirection="row" gap={1}>
+      {/* 行高恒 1、不压缩、溢出隐藏：压边换行会把每个列表项膨胀成 2 个
+          屏幕行，与 listWindow 按每项申报的高度失配——浮层顶行被裁、真
+          终端上换行泄入 scrollback 使行寻址错位、翻页错位累加（#396）。
+          选中 ✓ 仍作为独立列保留：行容器溢出隐藏后，长名截断不会因尾部
+          ✓ 把整行撑成两行，且 ✓ 不会被 truncate-end 截掉（与 e43021a
+          边框行加固同族）。 */}
+      <Box flexDirection="row" gap={1} height={1} flexShrink={0} overflow="hidden" width="100%">
         {renderIndicator()}
         {styled ? (
-          <Text color={getTextColor()} dimColor={disabled} wrap="truncate">
+          <Text color={getTextColor()} dimColor={disabled} wrap="truncate-end">
             {flatChildren}
           </Text>
         ) : (

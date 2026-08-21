@@ -94,7 +94,7 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
     const markX = lines[pairRow]!.indexOf('mark="!"')
     check('右栏改动词组使用亮绿词色', markX > 0 && fgAt(markX, pairRow) === 0x57956b, `fg=${fgAt(Math.max(markX, 0), pairRow).toString(16)}`)
     const defX = lines[pairRow]!.indexOf('def')
-    check('关键字使用语法色（syntaxKeyword）', defX > 0 && fgAt(defX, pairRow) === 0x82aaff, `fg=${fgAt(Math.max(defX, 0), pairRow).toString(16)}`)
+    check('关键字使用语法色（syntaxKeyword）', defX > 0 && fgAt(defX, pairRow) === 0x78a0d6, `fg=${fgAt(Math.max(defX, 0), pairRow).toString(16)}`)
   }
   if (ctxRow >= 0) {
     check('默认 none 档：上下文行无卡片底色', bgAt(6, ctxRow) === 0xffffff, `bg=${bgAt(6, ctxRow).toString(16)}`)
@@ -202,11 +202,20 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
   const { lines: mlLines, fgAt: mlFg } = await renderAt(120, mlTool)
   const worldRow = mlLines.findIndex(line => line.includes('world'))
   const worldX = worldRow >= 0 ? mlLines[worldRow]!.indexOf('world') : -1
-  check('多行字符串后续行带字符串色', worldX > 0 && mlFg(worldX, worldRow) === 0xe5c07b, `fg=${worldX > 0 ? mlFg(worldX, worldRow).toString(16) : 'n/a'}`)
+  check('多行字符串后续行带字符串色', worldX > 0 && mlFg(worldX, worldRow) === 0x79ad91, `fg=${worldX > 0 ? mlFg(worldX, worldRow).toString(16) : 'n/a'}`)
+
+  // Shared helper regressions: JSON args, multiline TS state, and safe unknown fallback.
+  const hl = await getCliHighlightPromise()
+  const jsonRuns = highlightLines('{"file_path":"src/a.ts","line":2}', 'json', hl, {
+    string: chalkFromToken('#82B89D'), number: chalkFromToken('#D19A66'),
+  }, 'json-dark')
+  check('JSON 参数产生字符串/数字 token', jsonRuns?.flat().some(run => run.color === 'rgb(130,184,157)') === true && jsonRuns.flat().some(run => run.color === 'rgb(209,154,102)') === true)
+  const tsRuns = highlightLines('const value = `first\nsecond`', 'ts', hl, { string: chalkFromToken('#82B89D') }, 'ts-dark')
+  check('TypeScript 多行字符串保持 lexer 状态', tsRuns?.[1]?.some(run => run.color === 'rgb(130,184,157)') === true)
+  check('未知语言安全回退', highlightLines('plain output', 'future-agent-language', hl, {}, 'unknown') === undefined)
 
   // P1-2: the syntax cache keys on the theme signature — a palette change
   // must not serve stale colors.
-  const hl = await getCliHighlightPromise()
   const chDark = { keyword: chalkFromToken('#8FA8E8') }
   const chLight = { keyword: chalkFromToken('#4A63A8') }
   const darkRuns = highlightLines('def f():', 'py', hl, chDark, 'sig-dark')

@@ -89,6 +89,16 @@ commands), then `dsh-tui` and `dsh --profile dsh-tui` are equivalent.
 `dsh-tui --resume` restores the most recently selected session; on Windows
 the repository's `dsh-tui.cmd` works the same way.
 
+### Herdr
+
+Run `dsh-tui` directly in a [Herdr](https://herdr.dev) pane; no extra setup is
+required. dsh-TUI reports `idle`, `working`, and `blocked` through Herdr's local
+integration API and marks questionnaires and tool approvals as `blocked`. The
+integration is completely inactive outside Herdr. `herdr agent start --kind
+dsh-tui`, session identity, and automatic restoration after a Herdr server
+restart still require a native dsh-TUI agent kind upstream; manually launched
+panes already retain, reconnect, and expose their live state.
+
 For running dsh-TUI inside VS Code — directly in the integrated terminal or
 via the `dsh-tui-vscode` companion extension (real-integrated-terminal
 sessions, an experience almost identical to the official Claude Code
@@ -146,7 +156,7 @@ so keep using `Ctrl`.
 |---|---|
 | Drag to select | In-app text selection, **copied on release** (OSC 52 with native `wl-copy`/`xclip`/`xsel` fallback; `load-buffer -w` inside tmux); the selection is cleared after copying and a "Copied N characters" notice pops up |
 | Double / triple click | Select word / line, copied on selection just the same |
-| Scroll wheel | Scroll the message list (±3 lines per notch) |
+| Scroll wheel | Only with fullscreen mouse tracking: scroll Help while it is open, otherwise scroll messages (±3 lines per notch); default inline mode does not deliver wheel events to the TUI |
 | `Esc` | Cancel an in-progress drag selection (no copy) |
 | Single-click a message line | Expand/collapse that line |
 | Click "load earlier messages" / "ctrl+e show previous N" | Load earlier messages / expand all |
@@ -307,8 +317,10 @@ pnpm smoke
 ```
 
 `lib/types/` is ignored generated output. `pnpm build` recompiles it from a
-clean output directory and runs the build gates. npm Git URL installs generate
-the same runtime through `prepare`. Rendering, questionnaire, or tool-card
+clean output directory and runs the build gates. **Git URL installs are not supported** (the source manifest keeps
+`@dsh-std/*` as workspace deps, `vendor/dsh-std` is a submodule, and pnpm ≥11 refuses
+git-hosted `prepare` scripts by default); install the registry package:
+`dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`. Rendering, questionnaire, or tool-card
 changes also require the relevant regression scripts.
 
 ## Plugin Ecosystem

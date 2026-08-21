@@ -23,7 +23,7 @@ import { renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-pro
 import { loadBaselineInstructions } from '@deepseek-ai/dsh-agent-instructions'
 import type { Context } from '@deepseek-ai/cordis'
 import { extname, isAbsolute, join } from 'node:path'
-import { completeCommands, isLocalCommandName, LOCAL_COMMANDS, parseCommandName, type CommandCompletion, type CommandCompletionNode, type LocalCommand } from '../commands.js'
+import { completeCommands, HIDDEN_COMMAND_NAMES, isLocalCommandName, LOCAL_COMMANDS, parseCommandName, type CommandCompletion, type CommandCompletionNode, type LocalCommand } from '../commands.js'
 import { clearResumeTarget, forgetSession, readResumeTarget, touchSession, writeResumeTarget } from '../sessionHistory.js'
 import { appendSessionTitle, deleteSessionLog, ensureLegacySessionEventTypes, sessionsRoots } from './compat/index.js'
 import {
@@ -36,6 +36,7 @@ import {
   type SessionSummary,
 } from './sessions/index.js'
 import { writeActivityFrames } from '../activityPrefs.js'
+import { isPathLikeQuery, rankFileCandidates, type FileCandidate } from '../utils/fileSuggestions.js'
 import { readEffortPref, writeEffortPref } from '../effortPrefs.js'
 import { readModelPref, writeModelPref } from '../modelPrefs.js'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../modelRoute.js'
@@ -52,8 +53,11 @@ import { localizeActivityState } from './activity-localization.js'
 import { localizeBundledPreset } from './preset-localization.js'
 import { modeDisplayName, resolveSessionModes, type SessionModeSpec } from '../sessionModes.js'
 import { normalizeStatusBar, normalizeToolBackground, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
+import { SubagentActivityStore, type SubagentState } from './subagents.js'
+export type { SubagentState } from './subagents.js'
 import type { SpinnerMode } from '../components/Spinner/spinnerMode.js'
 import { ActivityTracker, type ActivityState } from 'dsh-working-activity/status'
+import { setMinimalMode } from '../minimalMode.js'
 import { attachSessionToWorkspace } from './workspace.js'
 import { createLocalWorkspaceRuntime, getHostWorkspaceRuntime, type TuiWorkspaceCommand, type TuiWorkspaceCommandResult, type TuiWorkspaceTarget } from './workspaces.js'
 import { getHostCommandTrees } from './command-trees.js'
@@ -253,6 +257,32 @@ export interface ToolViewPresenter {
   result(name: string, rawArgs: string, data: SessionEvent<'tool/result'>['data']): ToolResultView | undefined
 }
 
+/**
+ * Subagent row: displays a subagent's lifecycle (started → running → completed/failed).
+ * Derived from agent.task events and history events.
+ */
+export interface SubagentControl {
+  interrupt(agentId: string): boolean
+}
+
+export interface SubagentRow {
+  agentId: string
+  runId?: string
+  description: string
+  provider?: string
+  model?: string
+  effort?: string
+  status: SubagentState['status']
+  startedAt: number
+  completedAt?: number
+  durationMs?: number
+  outputLines: string[]
+  toolCalls: SubagentState['toolCalls']
+  tokens?: SubagentState['tokens']
+  summary?: string
+  stopReason?: string
+  error?: string
+}
 
 /**
  * One rendered transcript row. The DSH session log is the source of truth:
@@ -261,7 +291,7 @@ export interface ToolViewPresenter {
  */
 export interface ChatRow {
   id: number
-  kind: 'user' | 'assistant' | 'tool' | 'notice' | 'reasoning' | 'interrupt' | 'local' | 'local-output' | 'compact'
+  kind: 'user' | 'assistant' | 'tool' | 'notice' | 'reasoning' | 'interrupt' | 'local' | 'local-output' | 'compact' | 'subagent'
   /** Extra label for non-human user rows (e.g. `steering`). */
   label?: string
   /** Actual execution location for `!command` rows. */
@@ -271,6 +301,8 @@ export interface ChatRow {
   streaming?: boolean
   /** Present on `tool` rows; the card model. */
   tool?: ToolRow
+  /** Present on `subagent` rows; the subagent state snapshot. */
+  subagent?: SubagentRow
   /** Event wall-clock time (transcript-mode metadata, assistant rows). */
   time?: number
   /** Present on `reasoning` rows once settled: thinking wall-clock duration. */
@@ -311,6 +343,21 @@ export interface NotificationItem {
   /** Auto-dismiss after this many ms (default 4000); 0 = sticky, removed
    *  only through the early-dismiss handle. */
   timeoutMs: number
+}
+
+/** Names the subagent delegation tools ship under (preset `toolName` values
+ *  plus the CLI default); each renders as a live subagent card, never a plain
+ *  tool card. */
+const SUBAGENT_TOOL_NAMES = new Set([
+  'task',
+  'subagent',
+  'subagent_fork',
+  'subagent_claude_code',
+  'subagent_codex',
+  'spawn_task',
+])
+function isSubagentToolName(name: string): boolean {
+  return SUBAGENT_TOOL_NAMES.has(name.toLowerCase())
 }
 
 /**
@@ -478,6 +525,11 @@ export interface Channel {
   readonly toolBackground: ToolBackground
   /** Live status-footer visibility and compactness preferences. */
   readonly statusBar: Readonly<StatusBarConfig>
+  /** Whether the header's pixel whale art shows (settings `dsh-tui.whale`). */
+  readonly whale: boolean
+  /** Minimal mode (settings `dsh-tui.minimal`): no header splash, no emoji
+   *  glyphs, no decorative colors; code highlight and tool colors stay. */
+  readonly minimal: boolean
   /** Whether the in-process working-activity line is shown (config.activity). */
   readonly activityEnabled: boolean
   /** Whether the segmented context bar row shows in the status footer
@@ -556,6 +608,10 @@ export interface Channel {
     thinking: number
     tools: number
   }
+  /** Active subagents spawned by the current session. */
+  readonly subagents: readonly SubagentState[]
+  /** Native control operations; unavailable providers safely return false. */
+  readonly subagentControl: SubagentControl
   subscribe: (listener: () => void) => () => void
   /** Validate and persist a pasted image, returning its prompt placeholder. */
   stageImage(input: StagedImageInput): Promise<string>
@@ -676,7 +732,9 @@ export interface Channel {
   settingsSections(): readonly TuiSettingsSection[]
   /** Subscribe to settings-section register/unregister events. */
   subscribeSettingsSections(listener: () => void): () => void
-  /** Top-level entries of the session cwd for `@` file completion. */
+  /** Structured `@` file completion, using the session's remote fs service. */
+  listFileCandidates(query: string, options?: { signal?: AbortSignal; topK?: number }): Promise<readonly FileCandidate[]>
+  /** Backward-compatible top-level/recursive listing. */
   listFiles(): Promise<readonly string[]>
   /** Every session the persistence backend stores, classified and unfiltered
    *  — the browser (`/resume`) decides which of them a given view shows. */
@@ -826,6 +884,13 @@ export interface ChannelState {
   setToolBackground(background: ToolBackground): void
   /** Apply status-footer preference changes. */
   setStatusBar(config: Partial<StatusBarConfig>): void
+  /** Whale header art switch (see the public Channel type). */
+  whale: boolean
+  /** Apply a whale-visibility change (see the public Channel type). */
+  setWhale(visible: boolean): void
+  minimal: boolean
+  /** Apply a minimal-mode change (see the public Channel type). */
+  setMinimal(enabled: boolean): void
   /** Working-activity display switch (see the public Channel type). */
   activityEnabled: boolean
   /** Context bar row switch (see the public Channel type). */
@@ -864,6 +929,9 @@ export interface ChannelState {
     thinking: number
     tools: number
   }
+  /** Active subagents roster (see the public Channel type). */
+  subagents: readonly SubagentState[]
+  subagentControl: SubagentControl
   subscribe: (listener: () => void) => () => void
   stageImage(input: StagedImageInput): Promise<string>
   /** @internal event bump (the public `notify(text)` posts a notification). */
@@ -930,6 +998,7 @@ export interface ChannelState {
   settingsSections(): readonly TuiSettingsSection[]
   /** Subscribe to settings-section register/unregister events. */
   subscribeSettingsSections(listener: () => void): () => void
+  listFileCandidates(query: string, options?: { signal?: AbortSignal; topK?: number }): Promise<readonly FileCandidate[]>
   listFiles(): Promise<readonly string[]>
   listSessions(): Promise<readonly SessionSummary[]>
   /** Trailing exchanges of a persisted session (see the public Channel type). */
@@ -1259,6 +1328,10 @@ export function createChannel(
     toolBackground?: ToolBackground
     /** Status-footer field visibility and compactness. */
     statusBar?: Partial<StatusBarConfig>
+    /** Show the header's pixel whale art; default on. */
+    whale?: boolean
+    /** Minimal mode; default off (settings `dsh-tui.minimal`). */
+    minimal?: boolean
     /** Show the segmented context bar row in the status footer; default on
      *  (cordis.yml `contextBar: false` hides it, issue #29). */
     contextBar?: boolean
@@ -1282,6 +1355,24 @@ export function createChannel(
 ): ChannelState {
   let agent = initialAgent
   let currentHandle: AgentHandle | undefined = options.handle
+  const subagentControl: SubagentControl = {
+    interrupt(agentId) {
+      const child = subagentStore.get(agentId)
+      const target = child?.sessionId ?? agentId
+      const runtime = (ctx as any).subagents
+      if (!runtime?.interrupt || !target) return false
+      try {
+        runtime.interrupt(target, { kind: 'ancestor', agent })
+        subagentStore.onCancelled(agentId, 'interrupted')
+        state.subagents = subagentStore.snapshot()
+        syncSubagentRows()
+        state.emit()
+        return true
+      } catch {
+        return false
+      }
+    },
+  }
   // D-7 backstop: the extensions row installs the decision-subscription
   // gate, but the channel IS the dispatch path — a stale patch without that
   // row (or a bare embed mounting neither) would otherwise leave tui/input
@@ -1296,6 +1387,56 @@ export function createChannel(
   const currentGrantStore = (): ReturnType<typeof readGrantStore> =>
     ctx.get('tuiPluginHost')?.grants ?? fallbackGrantStore
   installDecisionGuard(ctx, currentGrantStore())
+  // Subagent activity tracking: collects agent/subagent/*, session/event for
+  // subagents, and exposes live snapshots for the UI.
+  const subagentStore = new SubagentActivityStore()
+  // Subagent ChatRow tracking: maps agentId to its ChatRow for live updates.
+  const subagentRowsByAgentId = new Map<string, ChatRow>()
+  // Task tool descriptions, queued in call order; each subagent/start consumes
+  // the oldest one so the card shows the user-visible task label.
+  const pendingTaskDescriptions: string[] = []
+  
+  /**
+   * Sync subagentStore state into ChatRows (insert/update in state.rows).
+   * Called whenever subagent state changes (spawned/completed/failed/output).
+   */
+  const syncSubagentRows = (): void => {
+    const snapshot = subagentStore.snapshot()
+    for (const sub of snapshot) {
+      let row = subagentRowsByAgentId.get(sub.agentId)
+      if (!row) {
+        // New subagent: insert a new ChatRow after the last user or assistant message
+        row = {
+          id: nextRowId++,
+          kind: 'subagent',
+          text: sub.description,
+          subagent: undefined, // will be filled below
+        }
+        subagentRowsByAgentId.set(sub.agentId, row)
+        state.rows.push(row)
+      }
+      const subagentRow: SubagentRow = {
+        agentId: sub.agentId,
+        runId: sub.runId,
+        description: sub.description,
+        provider: sub.provider,
+        model: sub.model || 'default',
+        effort: sub.effort,
+        status: sub.status,
+        startedAt: sub.startedAt,
+        completedAt: sub.completedAt,
+        durationMs: sub.completedAt ? sub.completedAt - sub.startedAt : Date.now() - sub.startedAt,
+        outputLines: sub.output.slice(-3),
+        toolCalls: sub.toolCalls,
+        tokens: sub.tokens,
+        summary: sub.summary,
+        stopReason: sub.stopReason,
+        error: sub.error,
+      }
+      row.subagent = subagentRow
+      row.text = sub.description
+    }
+  }
   // The DSH slash-command registry (optional service): /plan, /goal and
   // friends register here; the TUI merges their descriptors into the slash
   // menu and dispatches through `execute` (which logs the paired
@@ -2036,6 +2177,12 @@ export function createChannel(
     await applyMode(sessionModes[(index + 1) % sessionModes.length]!)
   }
 
+  // Session-lifetime candidate pool for non-path queries. The load promise is
+  // shared so concurrent first keystrokes cannot kick off duplicate scans, and
+  // it is keyed by cwd so a /workspace switch or resumed session never reuses
+  // another directory's listing.
+  const fileCandidateCache = { cwd: '', load: undefined as Promise<readonly FileCandidate[]> | undefined }
+
   const state: ChannelState = {
     effortLevels: undefined,
     version: 0,
@@ -2070,6 +2217,8 @@ export function createChannel(
     thinkingFold: options.thinkingFold ?? 'preview',
     toolBackground: normalizeToolBackground(options.toolBackground),
     statusBar: normalizeStatusBar(options.statusBar),
+    whale: options.whale !== false,
+    minimal: options.minimal === true,
     activityEnabled: options.activity !== false,
     contextBarEnabled: options.contextBar !== false,
     agentPreset: options.agentPreset,
@@ -2111,6 +2260,8 @@ export function createChannel(
       thinking: 0,
       tools: 0,
     },
+    subagents: [],
+    subagentControl,
     subscribe(listener) {
       listeners.add(listener)
       return () => {
@@ -2232,15 +2383,19 @@ export function createChannel(
     },
     interruptAndDeliver(texts: readonly string[]): number {
       const queued = texts.map(text => text.trim()).filter(text => text !== '')
-      if (queued.length === 0 || cancelInFlight) return 0
+      if (queued.length === 0) return 0
       // No keepInbox: the parked copies are dropped (their discard events
       // retire the preview), then each text is re-queued as a fresh
       // followup. dsh-agent's cancel-convergence wake latch accepts this
       // wake immediately after cancel and starts it once the aborted turn
       // retires; waiting for whenIdle is unsafe because it also follows
-      // replacement work and may never settle.
-      cancelInFlight = true
-      agent.cancel({ kind: 'user' })
+      // replacement work and may never settle. If cancellation is already
+      // in flight, keep the existing abort and still replace the pending
+      // interrupt delivery; fake/embedded agents may not emit turn/end.
+      if (!cancelInFlight) {
+        cancelInFlight = true
+        agent.cancel({ kind: 'user' })
+      }
       const token = ++interruptSeq
       const deliver = (): void => {
         // A second interrupt while the abort is still settling must not
@@ -3067,6 +3222,17 @@ export function createChannel(
       state.statusBar = next
       state.emit()
     },
+    setWhale(visible) {
+      if (visible === state.whale) return
+      state.whale = visible
+      state.emit()
+    },
+    setMinimal(enabled) {
+      setMinimalMode(enabled)
+      if (enabled === state.minimal) return
+      state.minimal = enabled
+      state.emit()
+    },
     setActivityFrames(name) {
       if (!isPresetName(name)) {
         state.notify(t('unknown-activity-preset', { name }), { color: 'error' })
@@ -3415,20 +3581,30 @@ export function createChannel(
         signal: options?.signal,
       })
     },
-    listFiles() {
-      const fs = ctx.get('fs') as
-        | {
-          resolve(path: string): Promise<{ displayPath: string }>
-          listDir(target: { displayPath: string }): Promise<
-            Array<{
-              name: string
-              type: 'file' | 'directory' | 'other'
-              target: { displayPath: string }
-            }>
-          >
-        }
-        | undefined
-      return listFilesDeep(fs, state.cwd)
+    async listFileCandidates(query: string, options?: { signal?: AbortSignal; topK?: number }) {
+      const fs = ctx.get('fs') as MentionFs | undefined
+      if (!fs || options?.signal?.aborted) return []
+      if (isPathLikeQuery(query)) {
+        return listPathCandidates(fs, state.cwd, query, options?.signal, options?.topK ?? 50)
+      }
+      if (fileCandidateCache.cwd !== state.cwd) {
+        fileCandidateCache.cwd = state.cwd
+        fileCandidateCache.load = undefined
+      }
+      fileCandidateCache.load ??= listFilesDeepCandidates(fs, state.cwd).then(candidates => {
+        if (candidates.length > 0) return candidates
+        // An empty scan is not worth caching forever — retry on next query.
+        fileCandidateCache.load = undefined
+        return candidates
+      })
+      const candidates = await fileCandidateCache.load
+      if (options?.signal?.aborted) return []
+      return rankFileCandidates(candidates, query, options?.topK ?? 50)
+    },
+    async listFiles() {
+      const fs = ctx.get('fs') as MentionFs | undefined
+      const candidates = await listFilesDeepCandidates(fs, state.cwd)
+      return candidates.map(candidate => candidate.path)
     },
     async listSessions() {
       // Every stored session, classified and unfiltered. Which of them a
@@ -3887,6 +4063,9 @@ export function createChannel(
     const merged: LocalCommand[] = [...LOCAL_COMMANDS]
     if (commandService) {
       for (const descriptor of commandService.list(target)) {
+        // Hidden TUI commands (e.g. /deepseek) stay out of the public
+        // command catalog even if a plugin/skill happens to share the name.
+        if (HIDDEN_COMMAND_NAMES.has(descriptor.name)) continue
         if (merged.some(command => command.name === descriptor.name)) continue
         const descriptions = commandTrees?.descriptions(descriptor.name)
         merged.push({
@@ -4781,6 +4960,20 @@ ${output}
         // by the TUI once the batch is answered; tool/result for a call with
         // no card is a no-op below.
         if (event.data.name === 'ask_user_question') break
+        // The Task tool's plain card is replaced by the live subagent card
+        // (Kimi Code semantics): the delegation itself renders as a subagent
+        // row, so the raw args/result card would only duplicate it. The call
+        // still runs - only its transcript rendering is suppressed.
+        if (isSubagentToolName(event.data.name)) {
+          try {
+            const args = JSON.parse(event.data.arguments) as { description?: unknown }
+            if (typeof args.description === 'string' && args.description) pendingTaskDescriptions.push(args.description)
+          } catch {
+            // Unparseable args leave the queue untouched; the card falls back
+            // to the provider label.
+          }
+          break
+        }
         // Reasoning that led to a tool call is done thinking — fold the
         // preview now, before the tool card grows the transcript past it
         // (see foldLiveReasoning).
@@ -5133,6 +5326,17 @@ ${output}
         }
       })(),
       ctx.on('session/event', (session, event) => {
+        // First check if this is a subagent session
+        const subagentId = subagentStore.getSubagentIdBySession(session)
+        if (subagentId) {
+          subagentStore.onSessionEvent(subagentId, event)
+          state.subagents = subagentStore.snapshot()
+          syncSubagentRows()
+          if (event.type === 'assistant/chunk') state.emitStream()
+          else state.emit()
+          return
+        }
+        // Otherwise handle main agent session
         if (session !== agent.session) return
         // Observation broker (C-042): maps user/message + assistant/message
         // into grant-gated envelopes; every other event type is a no-op, and
@@ -5154,6 +5358,62 @@ ${output}
         if (event.type === 'assistant/chunk') state.emitStream()
         else state.emit()
       }),
+      // Subagent lifecycle tracking. The dsh-subagent service publishes scoped
+      // observe-only events as `subagent/start` and `subagent/end`; the parent
+      // Agent is carried by Cordis scope dispatch, not included in the payload.
+      (() => {
+        const disposeStart = ctx.on('subagent/start' as any, (info: { id: string; runId?: string; provider: string; local?: boolean }) => {
+          if (!info?.id) return
+          subagentStore.onSpawned(info.id, info.provider || 'subagent', info.provider, {
+            runId: info.runId ?? info.id,
+            local: info.local,
+            description: pendingTaskDescriptions.shift() ?? `${info.provider || 'subagent'} task`,
+          })
+          // In-process providers publish a child Agent during this notification.
+          // Resolve through ctx.get('agents') (the property proxy is
+          // topology-sensitive); the child carries its session (live output
+          // stream) and its provider/model route for the card header.
+          try {
+            const agents = ctx.get('agents') as
+              | { get(id: string): { session?: unknown; options?: { provider?: string; model?: string } } | undefined }
+              | undefined
+            const child = agents?.get(info.id)
+            if (child?.session) {
+              subagentStore.linkSession(info.id, child.session)
+              const model = child.options?.model ?? child.options?.provider
+              if (model) subagentStore.patch(info.id, { model, provider: child.options?.provider ?? info.provider })
+            }
+          } catch {
+            // Session discovery is best-effort and must not break the parent turn.
+          }
+          state.subagents = subagentStore.snapshot()
+          syncSubagentRows()
+          state.emit()
+        })
+        const disposeEnd = ctx.on('subagent/end' as any, (info: { id: string; stopReason: string; lastAssistantMessage?: unknown[] }) => {
+          if (!info?.id) return
+          const output = Array.isArray(info.lastAssistantMessage)
+            ? info.lastAssistantMessage
+                .map(block => typeof block === 'object' && block !== null && 'text' in block ? String((block as { text?: unknown }).text ?? '') : '')
+                .filter(Boolean)
+                .join('\n')
+            : ''
+          // The final assistant output becomes the card's summary only; the
+          // running waterfall came from the child session stream, so echoing
+          // it into the output buffer would duplicate it on the collapsed card.
+          subagentStore.flushOutput(info.id)
+          if (info.stopReason === 'completed') subagentStore.onCompleted(info.id, output, info.stopReason)
+          else if (info.stopReason === 'cancelled' || info.stopReason === 'aborted') subagentStore.onCancelled(info.id, info.stopReason, output)
+          else subagentStore.onFailed(info.id, info.stopReason || 'Unknown error')
+          state.subagents = subagentStore.snapshot()
+          syncSubagentRows()
+          state.emit()
+        })
+        return () => {
+          disposeStart()
+          disposeEnd()
+        }
+      })(),
     ]
   }
   // Subagents inherit provider/model from AgentOptions, but resumed TUI
@@ -5325,82 +5585,89 @@ function usageOutputTokens(usage: unknown): number | undefined {
     : undefined
 }
 
-/**
- * `@` file listing through the leaf's fs service (dsh-fs-local): skips
- * VCS/dependency/build dirs and rotates across directory listings so one
- * large subtree cannot consume the global MAX_FILES budget. That budget also
- * bounds directory reads without imposing an arbitrary source-tree depth.
- * Relative directories retain the trailing `/` that FileSuggestions expects.
- * Unreadable subtrees are skipped, not fatal.
- */
-async function listFilesDeep(
-  fs: {
-    resolve(path: string): Promise<{ displayPath: string }>
-    listDir(target: { displayPath: string }): Promise<
-      Array<{
-        name: string
-        type: 'file' | 'directory' | 'other'
-        target: { displayPath: string }
-      }>
-    >
-  } | undefined,
-  root: string,
-): Promise<string[]> {
+type FileSuggestionFs = {
+  resolve(path: string): Promise<{ displayPath: string }>
+  listDir(target: { displayPath: string }): Promise<Array<{ name: string; type: 'file' | 'directory' | 'other'; target?: { displayPath: string } }>>
+}
+
+async function listPathCandidates(fs: FileSuggestionFs, cwd: string, query: string, signal: AbortSignal | undefined, topK: number): Promise<FileCandidate[]> {
+  const normalized = query.replaceAll('\\', '/')
+  const slash = normalized.lastIndexOf('/')
+  // `.` / `..` without a trailing separator are whole-directory queries too.
+  const bareDir = slash < 0 && (normalized === '.' || normalized === '..' || normalized === '~')
+  const directoryPart = slash < 0 ? (bareDir ? `${normalized}/` : '') : normalized.slice(0, slash + 1)
+  const nameQuery = slash < 0 || bareDir ? '' : normalized.slice(slash + 1)
+  // `~/` expands against the host home (matches the cwd resolution rules);
+  // drive-letter and POSIX-absolute prefixes pass through untouched.
+  const expanded = directoryPart === '~/'
+    ? `${homeDir()}/`
+    : directoryPart.startsWith('/') || /^[A-Za-z]:\//.test(directoryPart)
+      ? directoryPart
+      : join(cwd, directoryPart || '.')
+  try {
+    if (signal?.aborted) return []
+    const target = await fs.resolve(expanded)
+    const entries = (await fs.listDir(target)).slice().sort((a, b) => a.name.localeCompare(b.name))
+    return rankFileCandidates(entries.filter(entry => entry.type === 'file' || entry.type === 'directory').map(entry => {
+      const path = `${directoryPart}${entry.name}${entry.type === 'directory' ? '/' : ''}`
+      return { id: path, path, displayPath: path, name: entry.name, kind: entry.type as 'file' | 'directory', score: 0 }
+    }), nameQuery, topK)
+  } catch {
+    return []
+  }
+}
+
+async function listFilesDeepCandidates(fs: FileSuggestionFs | undefined, root: string, signal?: AbortSignal): Promise<FileCandidate[]> {
   if (!fs) return []
-  const out: string[] = []
+  const out: FileCandidate[] = []
   const SKIP = new Set(['node_modules', '.git', '.hg', '.svn', '.DS_Store', 'dist'])
   const BUILD_DIR = /^(?:build(?:[-_].*)?|cmake-build(?:[-_].*)?)$/i
-  const MAX_FILES = 100
-
-  type Entry = {
-    name: string
-    type: 'file' | 'directory' | 'other'
-    target: { displayPath: string }
-  }
-  type Directory = {
-    dir: string
-    prefix: string
-    entries?: Entry[]
-    index: number
-  }
-  const directories: Directory[] = [{ dir: root, prefix: '', index: 0 }]
-
-  while (directories.length > 0 && out.length < MAX_FILES) {
-    const current = directories.shift()
-    if (!current) continue
+  type Entry = { name: string; type: 'file' | 'directory' | 'other'; target?: { displayPath: string } }
+  type Node = { dir: string; prefix: string; entries?: Entry[]; index: number }
+  const queue: Node[] = [{ dir: root, prefix: '', index: 0 }]
+  const visited = new Set<string>()
+  const maxFiles = 100
+  const maxDirectories = 100
+  let fileCount = 0
+  let dirCount = 0
+  // Round-robin: each directory yields ONE non-skipped entry per visit before
+  // it re-queues, so a large early sibling (e.g. `generated/` with 120 files)
+  // cannot starve `src/` out of the per-kind budgets. This is the regression
+  // contract pinned by scripts/verify-file-completion.mjs.
+  while (queue.length && fileCount < maxFiles && dirCount < maxDirectories) {
+    if (signal?.aborted) return []
+    const current = queue.shift()!
     if (!current.entries) {
       try {
         const target = await fs.resolve(current.dir)
-        current.entries = await fs.listDir(target)
-      } catch {
-        continue // unreadable subtree — skip
-      }
+        if (visited.has(target.displayPath)) continue
+        visited.add(target.displayPath)
+        current.entries = (await fs.listDir(target)).slice().sort((a, b) => a.name.localeCompare(b.name))
+      } catch { continue }
     }
-
     let entry: Entry | undefined
     while (current.index < current.entries.length) {
-      const candidate = current.entries[current.index++]
+      const candidate = current.entries[current.index++]!
       if (SKIP.has(candidate.name) || BUILD_DIR.test(candidate.name)) continue
       entry = candidate
       break
     }
     if (!entry) continue
-    if (current.index < current.entries.length) directories.push(current)
+    if (current.index < current.entries.length) queue.push(current)
 
-    const rel = current.prefix ? `${current.prefix}/${entry.name}` : entry.name
+    const path = current.prefix ? `${current.prefix}/${entry.name}` : entry.name
     if (entry.type === 'directory') {
-      out.push(`${rel}/`)
-      directories.push({
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: symlink targets optional
-        dir: entry.target?.displayPath ?? join(current.dir, entry.name),
-        prefix: rel,
-        index: 0,
-      })
+      if (dirCount >= maxDirectories) continue
+      out.push({ id: `${path}/`, path: `${path}/`, displayPath: `${path}/`, name: entry.name, kind: 'directory', score: 0 })
+      dirCount += 1
+      queue.push({ dir: entry.target?.displayPath ?? join(current.dir, entry.name), prefix: path, index: 0 })
     } else if (entry.type === 'file') {
-      out.push(rel)
+      if (fileCount >= maxFiles) continue
+      out.push({ id: path, path, displayPath: path, name: entry.name, kind: 'file', score: 0 })
+      fileCount += 1
     }
   }
-  return out
+  return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 /** One attached file's contribution is capped so an absent-minded `@` of a

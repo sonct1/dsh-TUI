@@ -34,6 +34,10 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
       - run: pnpm install --frozen-lockfile
 
       # lib/ is not checked in. Compile it once from a clean output directory;
@@ -50,6 +54,7 @@ jobs:
       # Keep every main/types/bin/exports target inside the published tarball
       # and smoke-import the two runtime entry points.
       - run: pnpm verify:package
+      - run: pnpm verify:bun-package
 
       # 带断言的回归：提问面板内联输入（issue #9）+ 工具卡排版
       # （⎿ 缩进、diff 红绿行、信封剥离），失败即非零退出。
@@ -97,6 +102,10 @@ jobs:
       # （30 行终端 30 个模型，焦点在索引 0 不可见），且 yoga 挤压会产生
       # 零高丢行——焦点必须始终随窗口在屏。
       - run: node --import tsx/esm scripts/repro-picker-windowing.tsx
+      # 压边截断回归（#396）：长名在终端最后一格截断时选中 ✓ 计入截断
+      # 预算、行恒 1 不换行——断言零 wrapped 行、Pane 内无幽灵空行、翻页
+      # 后标题/页脚/焦点仍在屏。
+      - run: node --import tsx/esm scripts/verify-picker-edge.tsx
 
       # 按键解析回归（issue #110）：Option+Enter（ESC CR）精确/合并/分块
       # 三种到达形态、CSI-u 与 modifyOtherKeys 的 Shift/Ctrl/Meta+Enter。
@@ -244,6 +253,8 @@ jobs:
 
       - run: node --import tsx/esm scripts/verify-channel-goal-todo.mjs
 
+      - run: node --import tsx/esm scripts/verify-whale-toggle.mjs
+
       # 裸 ● 空行回归：纯思考/纯工具步骤（无文本块）的 assistant/message
       # 不得创建空 assistant 行，否则思考块折叠后转录里多出一个只有
       # ● 前缀、内容为空的行。
@@ -291,9 +302,14 @@ jobs:
       # /lang 中英切换，外部命令查不到映射回退注册表原文，窄终端中文不劈字。
       - run: node --import tsx/esm scripts/verify-i18n-command-descriptions.tsx
 
-      # 外部编辑器回归（issue #123）：Ctrl+X 的 $VISUAL/$EDITOR 解析
-      # （引号拆分、优先级、vi 兜底）与临时文件往返（edited/unchanged/
-      # 非零退出/启动失败）。假编辑器进程，无需 TTY。
+      # /help 长命令面回归（issue #368）：80×24/80×18/60×18 均须保留提示，
+      # ↑/↓、翻页、Home/End 与滚轮可达首尾且不滚动底层 transcript；关闭重开
+      # 回顶，pending 预览只在 help 关闭后恢复，组合键不改写背后的 Chat 状态。
+      - run: node --import tsx/esm scripts/verify-help-scroll.tsx
+
+      # 外部编辑器回归（issue #123）：Ctrl+G 的 $VISUAL/$EDITOR 解析
+      # （引号拆分、优先级、未配置时 unavailable——无 vi 兜底）与临时文件
+      # 往返（edited/unchanged/非零退出/启动失败）。假编辑器进程，无需 TTY。
       - run: node scripts/verify-external-editor.mjs
 
       # 外部编辑器 TTY 交接回归（issue #123 实机冒烟）：恢复后 transcript

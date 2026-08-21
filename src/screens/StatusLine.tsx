@@ -2,7 +2,7 @@ import React from 'react'
 import { Box, Text, useTerminalSize, useTheme } from '../ui.js'
 import { formatTokens } from '../cc/format.js'
 import { t } from '../i18n.js'
-import { formatContextUsage, normalizeStatusBar, type StatusBarConfig } from '../tuiDisplayPrefs.js'
+import { formatContextUsage, DEFAULT_STATUS_BAR, normalizeStatusBar, type StatusBarConfig } from '../tuiDisplayPrefs.js'
 import { Byline } from '../components/design-system/Byline.js'
 import { ActivityLine, contextPressurePct } from '../components/ActivityLine.js'
 import type { Channel } from '../dsh-adapter/channel.js'
@@ -47,7 +47,11 @@ export function StatusLine({
   const { columns } = useTerminalSize()
   const [themeName] = useTheme()
 
-  const statusBar: StatusBarConfig = normalizeStatusBar(channel.statusBar)
+  const statusBar: StatusBarConfig = channel.minimal
+    // Minimal mode overrides every field switch: model + cwd only, so the
+    // footer can never grow decorations regardless of saved preferences.
+    ? { ...DEFAULT_STATUS_BAR, compact: true, model: true, cwd: true }
+    : normalizeStatusBar(channel.statusBar)
   const usage = channel.lastUsage
   const contextUsed = usage === undefined
     ? undefined

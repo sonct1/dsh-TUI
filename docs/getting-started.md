@@ -190,7 +190,7 @@ pnpm smoke
 ```
 
 `pnpm build` 会清理忽略入库的 `lib/`，把 `src/` 编译到 `lib/types/`，再运行
-构建门禁。npm Git URL 安装通过 `prepare` 生成同一套运行时；发布 workflow
+构建门禁。**Git URL 安装不受支持**（workspace 依赖/子模块/pnpm ≥11 prepare 白名单三重阻断）；发布 workflow
 也会在打包前显式执行干净编译和包面验证。
 
 真实测试当前源码时，首次使用或正式模型/密钥配置变化后运行：
@@ -233,6 +233,17 @@ node --import tsx/esm scripts/repro-toolcards.tsx
 
 
 ## 常见问题
+
+### Git URL 安装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` / `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`
+
+Git URL（如 `https://github.com/ccch1mneyyy/dsh-TUI`）安装不受支持，三重阻断：
+源 manifest 的 `@dsh-std/*` 是 workspace 依赖（git tarball 原样保留，profile
+内无法解析）；`vendor/dsh-std` 是 git 子模块（依赖抓取不带子模块内容，编译必
+败）；pnpm ≥11 默认拒绝 git 依赖执行 `prepare` 构建脚本。请安装 registry 包：
+
+```sh
+dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
+```
 
 ### `dsh-tui requires an interactive terminal`
 

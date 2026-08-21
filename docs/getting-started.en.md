@@ -183,9 +183,9 @@ pnpm smoke
 ```
 
 `pnpm build` cleans the ignored `lib/` directory, compiles `src/` into
-`lib/types/`, and runs the build gates. npm Git URL installs generate the same
-runtime through `prepare`; the publish workflow also performs an explicit clean
-compilation and package-surface check before packing.
+`lib/types/`, and runs the build gates. **Git URL installs are not supported**
+(workspace deps / submodule / pnpm ≥11 prepare allowlist); the publish workflow
+performs an explicit clean compilation and package-surface check before packing.
 
 For an integration test of the current source, run this once after initial
 setup or whenever the normal model/key configuration changes:

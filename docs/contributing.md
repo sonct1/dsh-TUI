@@ -117,9 +117,11 @@ Cordis config
 
 常规构建与类型检查关口：`pnpm build`。该命令先删除整个 `lib/`，再用
 `tsc -p tsconfig.json` 把 `src/` 输出到 `lib/types/`，最后运行适配边界、上游
-契约与 patch surface 门禁。`prepare` 生命周期只执行干净编译，让 npm Git URL
-安装无需仓库提交生成文件也能得到可运行的包；本地与 CI 使用显式命令，不依赖
-pnpm 是否隐式执行根包生命周期。
+契约与 patch surface 门禁。`prepare` 生命周期只服务**源码检出场景**的自举
+编译（vendor 子模块缺失时快速失败，见 scripts/prepare-guard.mjs）；Git URL
+依赖安装自 vendoring（#308）起三重阻断（workspace 依赖/子模块/pnpm ≥11
+prepare 白名单），不受支持，请装 registry 包。本地与 CI 使用显式命令，不
+依赖 pnpm 是否隐式执行根包生命周期。
 
 生成产物规则：
 
