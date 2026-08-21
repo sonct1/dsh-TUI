@@ -646,18 +646,17 @@ export function PromptInput({
       handleEnter()
       return
     }
-    // Help is modal over the composer. Backtab must not cycle the session
-    // mode invisibly behind it, and plain Tab has no Help action.
+    // Help is modal over the composer. Backtab must not cycle the effort
+    // level invisibly behind it, and plain Tab has no Help action.
     if (helpOpen && key.tab) {
       event.stopImmediatePropagation()
       return
     }
-    // Shift+Tab cycles the configured session modes (default: 默认 →
-    // 计划模式 → 完全访问; each mode bundles plan/sandbox/approval atoms —
-    // see the `modes` config). Must precede the plain-Tab arms — the parser
-    // reports backtab as key.tab + key.shift.
+    // Shift+Tab cycles the live route's reasoning-effort levels in adapter
+    // display order. Must precede the plain-Tab arms — the parser reports
+    // backtab as key.tab + key.shift.
     if (key.tab && key.shift) {
-      void channel.cycleMode()
+      void channel.cycleEffort()
       return
     }
     if (key.tab && fileOverlayOpen) {
@@ -1016,7 +1015,10 @@ export function PromptInput({
   const floatersOpen = helpOpen || channel.pending.length > 0 || fileOverlayOpen || overlayOpen
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    // No marginTop: the Chat bottom chrome reserves a fixed two-row band
+    // above the input for the transient status rows, so the input row set
+    // stays pinned to the bottom regardless of what the band is showing.
+    <Box flexDirection="column">
       {/* 瞬态面板浮层（帮助/队列/补全）：零布局高度、向上覆盖转录尾部，
           帧高不随面板开关涨落——否则帧顶行会被滚进 scrollback 并在关闭
           重绘时二次写入（/model 切换多一份启动画的根因，见 OverlayAbove）。 */}
